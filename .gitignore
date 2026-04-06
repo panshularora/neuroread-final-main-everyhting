@@ -1,0 +1,46 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.venv/
+**/venv_new/
+**/venv/
+.python-version
+
+# Node.js
+**/node_modules/
+**/dist/
+**/build/
+.npm
+.eslintcache
+
+# Database
+**/*.sqlite
+**/*.db
+**/*.db-journal
+
+# Logs
+*.log
+**/logs/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# VS Code / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+backend/static/audio/*
+!backend/static/audio/.gitkeep

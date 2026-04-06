@@ -1,0 +1,179 @@
+/* NeuroRead Accessibility CSS
+ * Research references:
+ *   - Wilkins (2004): Color overlays for dyslexia
+ *   - Snowling & Hulme (2011): Phonological awareness
+ *   - BDA (British Dyslexia Association): Line length, text alignment
+ */
+
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/otf/OpenDyslexic-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/otf/OpenDyslexic-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── CSS Variables ─────────────────────────────────────────────────────────── */
+:root {
+  --a11y-font: inherit;
+  --a11y-font-size: 18px;
+  --a11y-line-height: 1.8;
+  --a11y-letter-spacing: 0.12em;
+  --a11y-word-spacing: 0.16em;
+  --a11y-overlay: transparent;
+  --a11y-overlay-opacity: 0.2;
+}
+
+/* ── Font Classes ──────────────────────────────────────────────────────────── */
+.a11y-font-opendyslexic {
+  font-family: 'OpenDyslexic', sans-serif !important;
+}
+
+.a11y-font-arial {
+  font-family: Arial, Helvetica, sans-serif !important;
+}
+
+.a11y-font-system {
+  font-family: system-ui, -apple-system, sans-serif !important;
+}
+
+/* ── Main text content area ────────────────────────────────────────────────── */
+.a11y-text-content {
+  font-family: var(--a11y-font);
+  font-size: var(--a11y-font-size);
+  line-height: var(--a11y-line-height);
+  letter-spacing: var(--a11y-letter-spacing);
+  word-spacing: var(--a11y-word-spacing);
+  max-width: 65ch;          /* BDA recommended max line length */
+  text-align: left;          /* Never justified — problematic for dyslexia */
+}
+
+/* ── Color Overlay ─────────────────────────────────────────────────────────── */
+.color-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--a11y-overlay);
+  opacity: var(--a11y-overlay-opacity);
+  pointer-events: none;
+  z-index: 9999;
+  transition: background 0.3s ease, opacity 0.3s ease;
+}
+
+/* ── Word Highlight (TTS sync) ─────────────────────────────────────────────── */
+.word-highlight {
+  background: #FFE082;
+  border-radius: 3px;
+  transition: background 0.1s ease;
+  padding: 0 1px;
+}
+
+/* ── Reading Ruler ─────────────────────────────────────────────────────────── */
+.reading-ruler {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 2.5em;
+  background: rgba(255, 224, 130, 0.25);
+  pointer-events: none;
+  z-index: 9998;
+  border-top: 2px solid rgba(255, 193, 7, 0.4);
+  border-bottom: 2px solid rgba(255, 193, 7, 0.4);
+  transition: top 0.1s ease;
+}
+
+/* ── Exercise Animations ───────────────────────────────────────────────────── */
+.exercise-correct {
+  animation: correctPulse 0.6s ease;
+}
+
+.exercise-incorrect {
+  animation: gentleShake 0.5s ease;
+}
+
+@keyframes correctPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.6); }
+  70%  { box-shadow: 0 0 0 12px rgba(76, 175, 80, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+}
+
+@keyframes gentleShake {
+  0%,  100% { transform: translateX(0); }
+  25%        { transform: translateX(-6px); }
+  75%        { transform: translateX(6px); }
+}
+
+@keyframes deltaFadeIn {
+  0%   { opacity: 0; transform: translateY(-8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Phoneme Color Legend ──────────────────────────────────────────────────── */
+.phoneme-b { color: #4A90D9; font-weight: 700; }  /* b → blue */
+.phoneme-d { color: #E8734A; font-weight: 700; }  /* d → orange */
+.phoneme-p { color: #9B59B6; font-weight: 700; }  /* p → purple */
+.phoneme-q { color: #27AE60; font-weight: 700; }  /* q → green */
+
+/* ── Skill Bar Animations ──────────────────────────────────────────────────── */
+.skill-bar-container {
+  transition: all 0.3s ease;
+}
+
+.skill-bar-container:hover {
+  transform: translateX(2px);
+}
+
+/* ── Chunk reading ─────────────────────────────────────────────────────────── */
+.chunk-text {
+  font-size: 1.4em;
+  line-height: 2;
+  padding: 2rem;
+  text-align: left;
+}
+
+.chunk-nav-btn {
+  padding: 10px 24px;
+  border-radius: 12px;
+  border: none;
+  background: #2d6a4f;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chunk-nav-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(45, 106, 79, 0.3);
+}
+
+.chunk-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Dark mode support ─────────────────────────────────────────────────────── */
+.neuroread-dark {
+  background-color: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.neuroread-dark .bg-white {
+  background-color: #16213e !important;
+}
+
+.neuroread-dark .text-charcoal,
+.neuroread-dark .text-moss {
+  color: #e0e0e0 !important;
+}
