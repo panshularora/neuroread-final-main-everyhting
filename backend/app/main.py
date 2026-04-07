@@ -1,24 +1,35 @@
 from pathlib import Path
+import os
 
+print("🚀 APP STARTING...")
+
+# Load .env safely
 from dotenv import load_dotenv
+try:
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    print("[env] Loaded .env")
+except Exception as e:
+    print(f"[env ERROR] {e}")
 
-# Load backend/.env regardless of current working directory
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from fastapi import HTTPException
-import os
 
-from app.database import Base, engine
-from app.models.user import UserProfile
-from app.models.reading import ReadingSession, AnalyticsCache
-from app.services.learning.progress_tracker import LearningProgress  # auto-create table
+# DB imports
+try:
+    from app.database import Base, engine
+    from app.models.user import UserProfile
+    from app.models.reading import ReadingSession, AnalyticsCache
+    from app.services.learning.progress_tracker import LearningProgress
+    print("[db] Imports successful")
+except Exception as e:
+    print(f"[db ERROR] {e}")
 
 app = FastAPI(title="NeuroAdapt AI Engine")
+
+# ------------------- Exception Handlers -------------------
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -31,7 +42,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         },
     )
 
-
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
@@ -42,10 +52,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         },
     )
 
-
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    # Avoid leaking stack traces to clients.
+    print(f"[unhandled ERROR] {exc}")
     return JSONResponse(
         status_code=500,
         content={
@@ -54,9 +63,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         },
     )
 
+# ------------------- Middleware -------------------
+
 @app.middleware("http")
 async def log_requests(request, call_next):
-    # Temporary debug log for request/response flow
     print(f"[api] {request.method} {request.url.path}")
     response = await call_next(request)
     print(f"[api] {request.method} {request.url.path} -> {response.status_code}")
@@ -64,149 +74,96 @@ async def log_requests(request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-    ],
-    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|(\d{1,3}\.){3}\d{1,3})(:\d+)?$",
+    allow_origins=["*"],  # for deployment (safe for now)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Ensure static/audio folder exists (use absolute path so cwd doesn't matter)
+# ------------------- Static -------------------
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-os.makedirs(os.path.join(STATIC_DIR, "audio"), exist_ok=True)
 
-# Mount static folder
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+try:
+    os.makedirs(os.path.join(STATIC_DIR, "audio"), exist_ok=True)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    print("[static] Mounted")
+except Exception as e:
+    print(f"[static ERROR] {e}")
 
-# Create DB tables
+# ------------------- Startup -------------------
+
 @app.on_event("startup")
 def create_tables():
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("[startup] DB initialized")
+    except Exception as e:
+        print(f"[startup ERROR] DB failed: {e}")
 
+# ------------------- Basic Routes -------------------
 
 @app.get("/")
 def root():
     return {"message": "API working"}
 
-
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "2.0"}
 
+# ------------------- SAFE ROUTE LOADER -------------------
 
-# Routes
-# NOTE: The Assistive routers already expose legacy compatibility paths (e.g. `/simplify`)
-# so we avoid including legacy shim routers here to prevent duplicate route registration.
-from app.routes.analyze import router as analyze_router
-app.include_router(analyze_router)
+def safe_include(import_path, name, prefix=None):
+    try:
+        module = __import__(import_path, fromlist=["router"])
+        if prefix:
+            app.include_router(module.router, prefix=prefix)
+        else:
+            app.include_router(module.router)
+        print(f"[route] Loaded: {name}")
+    except Exception as e:
+        print(f"[route ERROR] {name}: {e}")
 
-from app.routes.progress import router as progress_router
-app.include_router(progress_router)
+# ------------------- ROUTES -------------------
 
-# Grouped routes (Assistive + Learning)
-from app.routes.assistive.assist import router as assist_router
-app.include_router(assist_router)
+safe_include("app.routes.analyze", "analyze")
+safe_include("app.routes.progress", "progress")
 
-from app.routes.assistive.vocab import router as assistive_vocab_router
-app.include_router(assistive_vocab_router)
+# Assistive
+safe_include("app.routes.assistive.assist", "assist")
+safe_include("app.routes.assistive.vocab", "vocab")
+safe_include("app.routes.assistive.tts", "tts")
+safe_include("app.routes.assistive.simplify", "simplify")
+safe_include("app.routes.assistive.rewrite", "rewrite")
+safe_include("app.routes.assistive.vocab_card", "vocab_card")
+safe_include("app.routes.assistive.document", "document")
+safe_include("app.routes.assistive.tutor", "tutor")
+safe_include("app.routes.assistive.heatmap", "heatmap")
+safe_include("app.routes.assistive.concept_graph", "concept_graph")
+safe_include("app.routes.assistive.chunk", "chunk")
+safe_include("app.routes.assistive.companion", "companion")
+safe_include("app.routes.assistive", "assistive_root", prefix="/assistive")
 
-from app.routes.assistive.tts import router as assistive_tts_router
-app.include_router(assistive_tts_router)
+# Learning
+safe_include("app.routes.learning.phonics", "phonics")
+safe_include("app.routes.learning.exercises", "exercises")
+safe_include("app.routes.learning.spelling", "spelling")
+safe_include("app.routes.learning.comprehension", "comprehension")
+safe_include("app.routes.learning.flashcards", "flashcards")
+safe_include("app.routes.learning.sound_match", "sound_match")
+safe_include("app.routes.learning.build_word", "build_word")
+safe_include("app.routes.learning.rhyme", "rhyme")
+safe_include("app.routes.learning.picture_match", "picture_match")
+safe_include("app.routes.learning.lesson", "lesson")
+safe_include("app.routes.learning.check_answer", "check_answer")
+safe_include("app.routes.learning.learning_progress", "learning_progress")
 
-from app.routes.assistive.simplify import router as assistive_simplify_router
-app.include_router(assistive_simplify_router)
+# Personalization & Analytics
+safe_include("app.routes.personalization", "personalization")
+safe_include("app.routes.personalization_difficulty", "personalization_difficulty")
+safe_include("app.routes.analytics", "analytics")
 
-from app.routes.assistive.rewrite import router as assistive_rewrite_router
-app.include_router(assistive_rewrite_router)
-
-from app.routes.assistive.vocab_card import router as assistive_vocab_card_router
-app.include_router(assistive_vocab_card_router)
-
-from app.routes.assistive.document import router as assistive_document_router
-app.include_router(assistive_document_router)
-
-from app.routes.assistive.tutor import router as assistive_tutor_router
-app.include_router(assistive_tutor_router)
-
-from app.routes.assistive.heatmap import router as assistive_heatmap_router
-app.include_router(assistive_heatmap_router)
-
-from app.routes.assistive.concept_graph import router as assistive_concept_graph_router
-app.include_router(assistive_concept_graph_router)
-
-from app.routes.assistive.chunk import router as assistive_chunk_router
-app.include_router(assistive_chunk_router)
-
-from app.routes.assistive.companion import router as assistive_companion_router
-app.include_router(assistive_companion_router)
-
-from app.routes.learning.phonics import router as learning_phonics_router
-app.include_router(learning_phonics_router)
-
-from app.routes.learning.exercises import router as learning_exercises_router
-app.include_router(learning_exercises_router)
-
-from app.routes.learning.spelling import router as learning_spelling_router
-app.include_router(learning_spelling_router)
-
-from app.routes.learning.comprehension import router as learning_comprehension_router
-app.include_router(learning_comprehension_router)
-
-# New dyslexia-focused learning routes
-from app.routes.learning.flashcards import router as learning_flashcards_router
-app.include_router(learning_flashcards_router)
-
-from app.routes.learning.sound_match import router as learning_sound_match_router
-app.include_router(learning_sound_match_router)
-
-from app.routes.learning.build_word import router as learning_build_word_router
-app.include_router(learning_build_word_router)
-
-from app.routes.learning.rhyme import router as learning_rhyme_router
-app.include_router(learning_rhyme_router)
-
-from app.routes.learning.picture_match import router as learning_picture_match_router
-app.include_router(learning_picture_match_router)
-
-from app.routes.learning.lesson import router as learning_lesson_router
-app.include_router(learning_lesson_router)
-
-from app.routes.learning.check_answer import router as learning_check_answer_router
-app.include_router(learning_check_answer_router)
-
-from app.routes.learning.learning_progress import router as learning_progress_router
-app.include_router(learning_progress_router)
-
-from app.routes.personalization import router as personalization_router
-app.include_router(personalization_router)
-
-from app.routes.personalization_difficulty import router as personalization_difficulty_router
-app.include_router(personalization_difficulty_router)
-
-from app.routes.analytics import router as analytics_router
-app.include_router(analytics_router)
-
-from app.routes.assistive import router as assistive_router
-app.include_router(assistive_router, prefix="/assistive")
-
-# ── New ML-wired learning endpoints ──────────────────────────────────────────
-try:
-    from app.routes.learning.learning_api import router as learning_api_router
-    app.include_router(learning_api_router)
-except Exception as e:
-    print(f"[main] WARNING: learning_api failed to load: {e}")
-
-# ── Phoneme annotation endpoint ───────────────────────────────────────────────
-try:
-    from app.routes.assistive.annotate import router as annotate_router
-    app.include_router(annotate_router)
-except Exception as e:
-    print(f"[main] WARNING: annotate route failed to load: {e}")
+# Optional routes
+safe_include("app.routes.learning.learning_api", "learning_api")
+safe_include("app.routes.assistive.annotate", "annotate")
