@@ -17,7 +17,7 @@ import {
 } from '../services/api';
 import AudioButton from './AudioButton';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL;
 
 interface Exercise {
   id: string;

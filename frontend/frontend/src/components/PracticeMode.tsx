@@ -5,7 +5,7 @@ import {
   WordChainsGame, SentenceReconstructionGame, RhymeFinderGame, FlashcardsGame, HomophonesGame
 } from './PracticeGames';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL;
 
 const PRACTICE_MODES = [
   { id: 'dictation', title: 'Dictation', icon: 'solar:pen-bold-duotone', desc: 'Hear a word and type it. Phonetic spelling counts!', color: 'text-clay', bg: 'bg-clay/10' },

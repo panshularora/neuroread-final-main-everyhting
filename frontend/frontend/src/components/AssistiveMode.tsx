@@ -7,7 +7,7 @@ import { colorizeText } from '../utils/phonemeColors.tsx';
 import { speakWithSync } from '../utils/tts';
 
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL;
 
 export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifier, onSetInputText }) {
   const [docResult, setDocResult] = useState(null);
