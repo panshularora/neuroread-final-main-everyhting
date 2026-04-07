@@ -94,7 +94,7 @@ def create_tables():
 
 @app.get("/")
 def root():
-    return {"message": "NeuroAdapt Backend Running"}
+    return {"message": "API working"}
 
 
 @app.get("/health")
