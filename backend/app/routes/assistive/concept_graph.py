@@ -11,7 +11,7 @@ class ConceptGraphRequest(BaseModel):
 
 
 @router.post(
-    "/assistive/concept-graph",
+    "/concept-graph",
     summary="Generate a concept graph (nodes/edges) for the given text.",
 )
 def assistive_concept_graph(payload: ConceptGraphRequest):

@@ -7,7 +7,7 @@ router = APIRouter()
 
 
 @router.post(
-    "/assistive/tutor",
+    "/tutor",
     response_model=TutorResponse,
     summary="AI reading tutor in conversational mode.",
 )

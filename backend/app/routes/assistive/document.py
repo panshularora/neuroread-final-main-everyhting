@@ -8,7 +8,7 @@ router = APIRouter()
 
 
 @router.post(
-    "/assistive/document",
+    "/document",
     response_model=DocumentResponse,
     summary="Upload a document (PDF, DOCX, TXT) for simplification and analysis.",
 )

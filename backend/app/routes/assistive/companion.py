@@ -12,7 +12,7 @@ class CompanionRequest(BaseModel):
 
 
 @router.post(
-    "/assistive/companion",
+    "/companion",
     summary="Reading companion: short guidance and suggestions.",
 )
 def assistive_companion(payload: CompanionRequest):

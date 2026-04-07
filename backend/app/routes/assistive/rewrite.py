@@ -7,7 +7,7 @@ router = APIRouter()
 
 
 @router.post(
-    "/assistive/rewrite",
+    "/rewrite",
     response_model=RewriteResponse,
     summary="Generate per‑sentence rewrite suggestions.",
 )

@@ -11,7 +11,7 @@ class HeatmapRequest(BaseModel):
 
 
 @router.post(
-    "/assistive/heatmap",
+    "/heatmap",
     summary="Return sentence-level cognitive load heatmap for text.",
 )
 def assistive_heatmap(payload: HeatmapRequest):

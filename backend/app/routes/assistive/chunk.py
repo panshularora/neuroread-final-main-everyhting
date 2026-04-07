@@ -11,7 +11,7 @@ class ChunkRequest(BaseModel):
 
 
 @router.post(
-    "/assistive/chunk",
+    "/chunk",
     summary="Chunk text into semantic blocks for chunk-mode reading.",
 )
 def assistive_chunk(payload: ChunkRequest):

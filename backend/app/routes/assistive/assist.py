@@ -19,7 +19,7 @@ class AssistRequest(BaseModel):
     top_keywords: int = Field(default=5, ge=1, le=20)
 
 
-@router.post("/assistive/assist")
+@router.post("/assist")
 def assist(request: AssistRequest) -> Dict[str, Any]:
     """Combined assistive endpoint: simplify + keywords + summary + vocabulary hints."""
     text = request.text.strip()

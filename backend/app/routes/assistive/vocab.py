@@ -14,7 +14,7 @@ class VocabRequest(BaseModel):
     text: str = Field(..., min_length=1)
 
 
-@router.post("/assistive/vocab")
+@router.post("/vocab")
 def vocab(request: VocabRequest) -> Dict[str, object]:
     """Return simple vocabulary hints for difficult words in text."""
     text = request.text.strip()

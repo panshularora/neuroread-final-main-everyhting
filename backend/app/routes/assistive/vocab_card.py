@@ -7,7 +7,7 @@ router = APIRouter()
 
 
 @router.post(
-    "/assistive/vocab-card",
+    "/vocab-card",
     response_model=VocabCardResponse,
     summary="Generate a visual vocabulary card for a word.",
 )

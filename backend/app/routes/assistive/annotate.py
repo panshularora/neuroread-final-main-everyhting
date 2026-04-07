@@ -72,7 +72,7 @@ class AnnotateRequest(BaseModel):
 
 
 @router.post(
-    "/assistive/annotate",
+    "/annotate",
     summary="Phoneme-color annotate text for b/d/p/q discrimination.",
 )
 def annotate_endpoint(payload: AnnotateRequest):

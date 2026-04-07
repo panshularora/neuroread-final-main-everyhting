@@ -32,6 +32,6 @@ def generate_tts(request: TTSRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/assistive/tts")
+@router.post("/tts")
 def generate_tts_assistive(request: TTSRequest):
     return generate_tts(request)
