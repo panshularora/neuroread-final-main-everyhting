@@ -20,5 +20,6 @@ google-genai>=1.0.0
 gtts==2.5.1
 
 # FIX
-setuptools>=68.0.0
+setuptools==70.0.0
+importlib-metadata
 wheel
