@@ -19,4 +19,6 @@ google-genai>=1.0.0
 # Audio / TTS
 gtts==2.5.1
 
-setuptools
+# FIX
+setuptools>=68.0.0
+wheel
