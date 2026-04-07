@@ -1,5 +1,5 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from app.services.simplifier import simplify_text
 from app.services.cognitive_load import calculate_cognitive_load
@@ -20,7 +20,7 @@ router = APIRouter()
 
 
 class SimplifyRequest(BaseModel):
-    text: str
+    text: str = Field(..., min_length=1)
     level: int | None = None
     user_id: str | None = None
     profile: str | None = "default"
@@ -30,10 +30,12 @@ class SimplifyRequest(BaseModel):
 
 @router.post("/simplify")
 def simplify(request: SimplifyRequest):
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     # 1️⃣ Analyze original
     original_analysis = calculate_cognitive_load(request.text)
-    original_score = original_analysis["cognitive_load_score"]
+    original_score = original_analysis.get("cognitive_load_score", 0)
 
     # 2️⃣ Auto level
     if request.level is None:
@@ -78,7 +80,7 @@ def simplify(request: SimplifyRequest):
 
     # 4️⃣ Analyze simplified
     simplified_analysis = calculate_cognitive_load(simplified_text)
-    simplified_score = simplified_analysis["cognitive_load_score"]
+    simplified_score = simplified_analysis.get("cognitive_load_score", original_score)
 
     reduction = original_score - simplified_score
 
