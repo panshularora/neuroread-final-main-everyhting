@@ -1,96 +1,169 @@
-import React, { useState } from 'react';
-import { ensureUserId } from '../services/api';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  ArrowRightLeft,
+  CheckCircle2,
+  Ear,
+  Hash,
+  Layers,
+  Link2,
+  ListOrdered,
+  Music2,
+  PenLine,
+  SpellCheck,
+  Zap,
+} from 'lucide-react';
+import { generatePracticeGame, friendlyError } from '../services/api';
 import {
   DictationGame, ErrorCorrectionGame, WordSortingGame, SyllableTappingGame,
   WordChainsGame, SentenceReconstructionGame, RhymeFinderGame, FlashcardsGame, HomophonesGame
 } from './PracticeGames';
 
-const API_URL = import.meta.env.VITE_API_URL;
-
 const PRACTICE_MODES = [
-  { id: 'dictation', title: 'Dictation', icon: 'solar:pen-bold-duotone', desc: 'Hear a word and type it. Phonetic spelling counts!', color: 'text-clay', bg: 'bg-clay/10' },
-  { id: 'error_correction', title: 'Error Correction', icon: 'solar:magic-stick-3-bold-duotone', desc: 'Spot the incorrectly spelled word in context.', color: 'text-moss', bg: 'bg-moss/10' },
-  { id: 'word_sorting', title: 'Word Sorting', icon: 'solar:layers-bold-duotone', desc: 'Sort b and d words into their buckets.', color: 'text-blue-600', bg: 'bg-blue-50' },
-  { id: 'syllable_tapping', title: 'Syllable Tapping', icon: 'solar:music-notes-bold-duotone', desc: 'Tap the number of syllables you hear.', color: 'text-purple-600', bg: 'bg-purple-50' },
-  { id: 'word_chains', title: 'Word Chains', icon: 'solar:link-bold-duotone', desc: 'Change one letter at a time to build words.', color: 'text-orange-500', bg: 'bg-orange-50' },
-  { id: 'sentence_reconstruction', title: 'Sentence Builder', icon: 'solar:text-square-bold-duotone', desc: 'Drag jumbled words into the correct order.', color: 'text-green-600', bg: 'bg-green-50' },
-  { id: 'rhyme_finder', title: 'Rhyme Finder', icon: 'solar:chat-round-line-line-duotone', desc: 'Find all words that rhyme with the target.', color: 'text-pink-600', bg: 'bg-pink-50' },
-  { id: 'flashcards', title: 'Speed Flashcards', icon: 'solar:bolt-bold-duotone', desc: 'Read a word in 0.5s and type it from memory.', color: 'text-yellow-600', bg: 'bg-yellow-50' },
-  { id: 'homophones', title: 'Homophone Spotter', icon: 'solar:eye-scan-bold-duotone', desc: "They're / Their / There — which one fits?", color: 'text-teal-600', bg: 'bg-teal-50' },
+  { id: 'dictation', title: 'Dictation', Icon: Ear, skill: 'Spelling', desc: 'Hear a word and type it.' },
+  { id: 'error_correction', title: 'Fix the spelling', Icon: SpellCheck, skill: 'Spelling', desc: 'Spot the misspelled word in a sentence and pick the right one.' },
+  { id: 'word_sorting', title: 'Word sorting', Icon: Layers, skill: 'Letter reversal', desc: 'Sort words by the letter they use, such as b or d.' },
+  { id: 'syllable_tapping', title: 'Syllable tapping', Icon: Hash, skill: 'Phonological awareness', desc: 'Count the beats in a word.' },
+  { id: 'word_chains', title: 'Word chains', Icon: Link2, skill: 'Phonics', desc: 'Change one letter at a time to make the next word.' },
+  { id: 'sentence_reconstruction', title: 'Sentence builder', Icon: ListOrdered, skill: 'Syntax', desc: 'Put jumbled words back in order.' },
+  { id: 'rhyme_finder', title: 'Rhyme finder', Icon: Music2, skill: 'Phonological awareness', desc: 'Find the word that rhymes with the target.' },
+  { id: 'flashcards', title: 'Speed flashcards', Icon: Zap, skill: 'Sight words', desc: 'See a word for a moment, then type it from memory.' },
+  { id: 'homophones', title: 'Homophones', Icon: ArrowRightLeft, skill: 'Vocabulary', desc: 'There, their or they’re: pick the one that fits.' },
 ];
 
-const PracticeMode = ({ active }) => {
-  const [activeGame, setActiveGame] = useState(null);
-  const [gameData, setGameData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [feedback, setFeedback] = useState(null); // { correct: boolean }
+// The expected answer for each game, shown after a wrong attempt.
+function expectedAnswer(game: string, data: any): string | null {
+  if (!data) return null;
+  switch (game) {
+    case 'dictation':
+    case 'flashcards':
+      return data.word;
+    case 'error_correction':
+    case 'homophones':
+      return data.answer;
+    case 'syllable_tapping':
+      return `${data.syllables} syllable${data.syllables === 1 ? '' : 's'}`;
+    case 'word_chains':
+      return data.chain?.[1];
+    case 'sentence_reconstruction':
+      return data.words?.join(' ');
+    case 'rhyme_finder':
+      return data.answers?.join(', ');
+    default:
+      return null;
+  }
+}
 
-  const userId = ensureUserId();
+const PracticeMode = ({ active }) => {
+  const [activeGame, setActiveGame] = useState<string | null>(null);
+  const [gameData, setGameData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{ correct: boolean } | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [score, setScore] = useState({ correct: 0, total: 0 });
+  const feedbackRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (feedback) feedbackRef.current?.focus();
+  }, [feedback]);
 
   if (!active) return null;
 
-  const startGame = async (modeId) => {
+  const startGame = async (modeId: string) => {
     setActiveGame(modeId);
     setLoading(true);
     setFeedback(null);
+    setLoadError('');
     try {
-      const res = await fetch(`${API_URL}/api/learning/practice/generate?game_type=${modeId}&t=${Date.now()}`);
-      if (!res.ok) throw new Error("Failed to fetch game data");
-      const data = await res.json();
-      setGameData(data);
+      setGameData(await generatePracticeGame(modeId));
     } catch (err) {
-      console.error(err);
-      alert("Oops! Could not load game data from the server. Make sure the backend is running!");
+      setLoadError(friendlyError(err, "That game couldn't be loaded. Please try again."));
       setActiveGame(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleComplete = (isCorrect) => {
+  const handleComplete = (isCorrect: boolean) => {
     setFeedback({ correct: isCorrect });
+    setScore((s) => ({ correct: s.correct + (isCorrect ? 1 : 0), total: s.total + 1 }));
   };
 
-  const nextQuestion = () => {
-    // Keep them in the current game mode to get a different question for the same game!
-    startGame(activeGame);
+  const backToMenu = () => {
+    setActiveGame(null);
+    setGameData(null);
+    setFeedback(null);
   };
 
   if (activeGame) {
+    const mode = PRACTICE_MODES.find((m) => m.id === activeGame);
+    const answer = expectedAnswer(activeGame, gameData);
     return (
-      <div key={activeGame} className="py-12 px-6 max-w-5xl mx-auto min-h-[600px]">
-        <button onClick={() => { setActiveGame(null); setGameData(null); setFeedback(null); }} className="mb-10 text-clay font-bold flex items-center gap-2 hover:underline bg-white px-4 py-2 rounded-full shadow-sm w-fit">
-          <span className="iconify" data-icon="solar:arrow-left-linear" /> Back to Mini-Games
-        </button>
-        
+      <div key={activeGame} className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={backToMenu}
+            className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2 font-bold hover:bg-ink/5"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> All games
+          </button>
+          {score.total > 0 && (
+            <p className="text-sm text-muted">
+              This session: <strong className="text-ink tabular-nums">{score.correct} of {score.total}</strong> correct
+            </p>
+          )}
+        </div>
+
         {loading || !gameData ? (
-          <div className="text-center py-32 flex flex-col items-center">
-            <div className="w-20 h-20 rounded-full border-4 border-moss border-t-transparent animate-spin mb-8" />
-            <p className="text-moss font-bold text-xl tracking-tight">Generating practice data...</p>
+          <div className="flex flex-col items-center py-24 text-center" role="status">
+            <div className="mb-6 h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <p className="font-bold text-primary">Getting a {mode?.title.toLowerCase()} question…</p>
           </div>
         ) : feedback ? (
-          <div className={`max-w-xl mx-auto p-16 rounded-[3rem] text-center shadow-2xl animate-in zoom-in border-4 ${feedback.correct ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'}`}>
-            <i className="not-italic block"><span className={`iconify text-[80px] mb-8 ${feedback.correct ? 'text-green-500' : 'text-orange-500'}`} data-icon={feedback.correct ? "solar:check-circle-bold-duotone" : "solar:close-circle-bold-duotone"} /></i>
-            <h3 className={`text-4xl font-bold mb-6 tracking-tight ${feedback.correct ? 'text-green-700' : 'text-orange-700'}`}>
-              {feedback.correct ? 'Excellent Job!' : 'Not Quite!'}
-            </h3>
-            <p className="text-xl text-text-muted mb-10 font-medium">
-              {feedback.correct ? 'You nailed that one. Ready for the next challenge?' : 'Keep practicing, you will get it next time! Play again?'}
+          <div
+            className={`mx-auto max-w-xl rounded-3xl border-2 p-8 text-center sm:p-12 ${
+              feedback.correct ? 'border-ok/40 bg-ok/5' : 'border-warn/40 bg-warn/5'
+            }`}
+          >
+            {feedback.correct ? (
+              <CheckCircle2 className="mx-auto mb-4 h-14 w-14 text-ok" aria-hidden="true" />
+            ) : (
+              <PenLine className="mx-auto mb-4 h-14 w-14 text-warn" aria-hidden="true" />
+            )}
+            <h2 ref={feedbackRef} tabIndex={-1} className="mb-3 text-3xl outline-none">
+              {feedback.correct ? 'That’s right' : 'Not this time'}
+            </h2>
+            <p className="mb-8 text-lg text-muted">
+              {feedback.correct ? (
+                'Nicely done. Want another one?'
+              ) : answer ? (
+                <>
+                  The answer was <strong className="text-ink">{answer}</strong>. Mistakes are part of practice.
+                </>
+              ) : (
+                'Mistakes are part of practice. Try another one.'
+              )}
             </p>
-            <div className="flex gap-4 justify-center">
-              <button onClick={nextQuestion} className="px-10 py-5 bg-moss text-white font-bold text-xl rounded-full hover:scale-105 transition-all shadow-xl">
-                {feedback.correct ? 'Next Question' : 'Try Another'}
-              </button>
-              <button 
-                onClick={() => { setActiveGame(null); setGameData(null); setFeedback(null); }} 
-                className="px-8 py-5 bg-white border-2 border-moss/20 text-moss font-bold text-xl rounded-full hover:bg-moss/5 transition-all"
+            <div className="flex flex-col justify-center gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => startGame(activeGame)}
+                className="rounded-xl bg-primary px-8 py-3 text-lg font-bold text-white hover:bg-primary/90"
               >
-                Menu
+                Next question
+              </button>
+              <button
+                type="button"
+                onClick={backToMenu}
+                className="rounded-xl border border-line bg-surface px-8 py-3 text-lg font-bold hover:bg-ink/5"
+              >
+                Choose another game
               </button>
             </div>
           </div>
         ) : (
-          <div key={gameData?.id || Date.now()} className="animate-in fade-in slide-in-from-bottom duration-500">
+          <div key={gameData?.id || JSON.stringify(gameData).slice(0, 40)}>
             {activeGame === 'dictation' && <DictationGame data={gameData} onComplete={handleComplete} />}
             {activeGame === 'error_correction' && <ErrorCorrectionGame data={gameData} onComplete={handleComplete} />}
             {activeGame === 'word_sorting' && <WordSortingGame data={gameData} onComplete={handleComplete} />}
@@ -107,27 +180,41 @@ const PracticeMode = ({ active }) => {
   }
 
   return (
-    <div className="py-16 px-6 max-w-6xl mx-auto">
-      <div className="text-center mb-16 animate-in slide-in-from-top fade-in duration-500">
-        <h2 className="text-5xl font-medium text-moss mb-4 tracking-tight">Practice Engine</h2>
-        <p className="text-text-muted text-xl max-w-2xl mx-auto">Evidence-based dyslexia therapy mini-games designed to rebuild reading confidence and automaticity.</p>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {PRACTICE_MODES.map((mode, i) => (
-          <div key={mode.id} onClick={() => startGame(mode.id)}
-            style={{ animationDelay: `${i * 50}ms` }}
-            className={`bg-white p-8 rounded-[2rem] border border-moss/10 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer group animate-in zoom-in fade-in fill-mode-both`}>
-            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-all ${mode.bg} ${mode.color}`}>
-              <span className="iconify text-4xl" data-icon={mode.icon} />
-            </div>
-            <h3 className="text-2xl font-bold text-charcoal mb-3 tracking-tight">{mode.title}</h3>
-            <p className="text-sm text-text-muted leading-relaxed font-medium">
-              {mode.desc}
-            </p>
-          </div>
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
+      <header className="mb-8 max-w-2xl">
+        <h1 className="text-3xl sm:text-4xl">Practice</h1>
+        <p className="mt-3 text-lg text-muted">
+          Nine short games, each aimed at a skill that dyslexic readers often find hard. A round takes about a minute.
+        </p>
+      </header>
+
+      {loadError && (
+        <p role="alert" className="mb-8 rounded-2xl border border-err/30 bg-err/5 p-4 text-base text-err">
+          {loadError}
+        </p>
+      )}
+
+      <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {PRACTICE_MODES.map((mode) => (
+          <li key={mode.id}>
+            <button
+              type="button"
+              onClick={() => startGame(mode.id)}
+              className="group flex h-full w-full flex-col rounded-3xl border border-line bg-surface p-6 text-left shadow-card hover:border-primary/60"
+            >
+              {/* Title comes first in the DOM so it leads the button's accessible name. */}
+              <span className="order-2 font-display text-xl font-bold group-hover:text-primary">{mode.title}</span>
+              <span className="order-3 mt-1 text-base text-muted">{mode.desc}</span>
+              <span className="order-1 mb-4 flex items-center justify-between">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <mode.Icon className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <span className="rounded-full bg-paper px-3 py-1 text-sm text-muted">{mode.skill}</span>
+              </span>
+            </button>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 };

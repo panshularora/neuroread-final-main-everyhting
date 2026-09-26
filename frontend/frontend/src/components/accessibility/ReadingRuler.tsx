@@ -25,17 +25,25 @@ export default function ReadingRuler() {
       if (dragging.current) setYPos(e.touches[0].clientY - 20)
     }
     const onUp = () => { dragging.current = false }
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+      e.preventDefault()
+      const step = e.key === 'ArrowUp' ? -24 : 24
+      setYPos(y => Math.min(window.innerHeight - 48, Math.max(0, y + step)))
+    }
 
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('touchmove', onTouchMove)
     window.addEventListener('mouseup', onUp)
     window.addEventListener('touchend', onUp)
+    window.addEventListener('keydown', onKey)
 
     return () => {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('mouseup', onUp)
       window.removeEventListener('touchend', onUp)
+      window.removeEventListener('keydown', onKey)
     }
   }, [rulerEnabled])
 
@@ -57,7 +65,7 @@ export default function ReadingRuler() {
         backgroundColor: rulerColor,
         border: '1px solid rgba(0,0,0,0.08)',
         pointerEvents: 'none',
-        zIndex: 9997,
+        zIndex: 100,
         borderRadius: 2,
       }}
       aria-hidden="true"

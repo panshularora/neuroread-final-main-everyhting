@@ -1,309 +1,314 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
 import jsPDF from 'jspdf';
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  BarChart,
-  Bar,
-} from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { AlertTriangle, BookOpenText, Download, Info, Puzzle, RotateCw, Star, Target } from 'lucide-react';
 
-import { getDashboard, ensureUserId } from '../services/api';
+import { getDashboard, ensureUserId, setUserId as storeUserId, friendlyError } from '../services/api';
 import { useAsync } from '../hooks/useAsync';
+
+type Session = {
+  session_id: number;
+  cognitive_load: number;
+  reading_time: number;
+  difficult_words_count?: number;
+  pauses?: number;
+  errors?: number;
+  timestamp: string;
+};
+
+type Insight = { type: string; title: string; desc: string };
+
+type DashboardData = {
+  avg_cognitive_load?: number;
+  improvement_trend?: number[];
+  session_history?: Session[];
+  difficulty_distribution?: { low: number; moderate: number; high: number };
+  insights?: Insight[];
+};
+
+const INSIGHT_STYLE: Record<string, { Icon: typeof Info; tone: string }> = {
+  struggle: { Icon: AlertTriangle, tone: 'border-err/30 bg-err/5 text-err' },
+  phonics: { Icon: Target, tone: 'border-warn/30 bg-warn/5 text-warn' },
+  success: { Icon: Star, tone: 'border-ok/30 bg-ok/5 text-ok' },
+};
+
+const formatMinutes = (m: number) => (m < 1 ? `${Math.max(1, Math.round(m * 60))} s` : `${m.toFixed(1)} min`);
+
+function downloadReport(userId: string, data: DashboardData, sessions: Session[]) {
+  const doc = new jsPDF();
+  const totalMinutes = sessions.reduce((sum, s) => sum + Number(s.reading_time || 0), 0);
+  const dist = data.difficulty_distribution || { low: 0, moderate: 0, high: 0 };
+  let y = 24;
+  const line = (text: string, size = 11, gap = 7) => {
+    doc.setFontSize(size);
+    doc.text(text, 20, y);
+    y += gap;
+  };
+
+  line('NeuroRead progress report', 20, 12);
+  doc.setTextColor(90, 90, 90);
+  line(`Learner ID: ${userId}`);
+  line(`Generated: ${new Date().toLocaleString()}`, 11, 12);
+  doc.setTextColor(20, 20, 20);
+
+  line('Summary', 14, 8);
+  line(`Sessions logged: ${sessions.length}`);
+  line(`Total reading time: ${formatMinutes(totalMinutes)}`);
+  line(`Average reading load: ${data.avg_cognitive_load ?? 'n/a'} / 100`);
+  line(`Texts by difficulty: ${dist.low} low, ${dist.moderate} moderate, ${dist.high} high`, 11, 12);
+
+  if (data.insights?.length) {
+    line('Observations', 14, 8);
+    data.insights.forEach((i) => {
+      const wrapped = doc.splitTextToSize(`${i.title}: ${i.desc}`, 170);
+      doc.setFontSize(11);
+      doc.text(wrapped, 20, y);
+      y += wrapped.length * 6 + 2;
+    });
+    y += 4;
+  }
+
+  line('Recent sessions', 14, 8);
+  sessions.slice(-10).reverse().forEach((s) => {
+    line(
+      `${new Date(s.timestamp).toLocaleDateString()}  load ${Math.round(s.cognitive_load)}  ` +
+        `time ${formatMinutes(Number(s.reading_time))}  tutor questions ${s.pauses || 0}  words looked up ${s.errors || 0}`,
+      10,
+      6,
+    );
+  });
+
+  doc.setFontSize(9);
+  doc.setTextColor(110, 110, 110);
+  doc.text('Generated from NeuroRead session logs. This is not a diagnosis.', 20, 285);
+  doc.save(`NeuroRead_Report_${userId}.pdf`);
+}
 
 export default function Dashboard({ onNavigate }: { onNavigate?: (mode: string) => void }) {
   const [userId, setUserId] = useState(() => ensureUserId('demo-user-001'));
-  const [data, setData] = useState<any>(null);
+  const [draftId, setDraftId] = useState(userId);
+  const [data, setData] = useState<DashboardData | null>(null);
   const dashboardAsync = useAsync(getDashboard, { retries: 1 });
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await dashboardAsync.run(userId);
-        if (mounted) setData(res);
-      } catch { /* handled */ }
-    })();
-    return () => { mounted = false; };
-  }, [userId]);
-
-  const trendData = useMemo(() => {
-    const trend = data?.improvement_trend || [];
-    return trend.map((v, idx) => ({ session: idx + 1, load: Number(v) }));
-  }, [data]);
-
-  const recommendations = [
-    { title: 'Try Phonics Lab', desc: 'You are doing great! Let\'s practice some new sounds today.', icon: 'solar:microphone-3-bold-duotone', color: 'text-green-600' },
-    { title: 'Read a Story', desc: 'A short story can help reinforce the words you learned yesterday.', icon: 'solar:book-bold-duotone', color: 'text-purple-600' }
-  ];
-
-  const [generatingReport, setGeneratingReport] = useState(false);
-
-  const generateReport = () => {
-    setGeneratingReport(true);
-    setTimeout(() => {
-      const doc = new jsPDF();
-      doc.setFontSize(22);
-      doc.setTextColor(46, 64, 54); // moss
-      doc.text('NeuroRead Cognitive Report', 20, 30);
-      
-      doc.setFontSize(12);
-      doc.setTextColor(100, 100, 100);
-      doc.text(`Patient Profile / User ID: ${userId}`, 20, 40);
-      doc.text(`Date of Report: ${new Date().toLocaleDateString()}`, 20, 48);
-      
-      doc.setFontSize(14);
-      doc.setTextColor(0, 0, 0);
-      doc.text('Cognitive Summary', 20, 65);
-      doc.setFontSize(11);
-      doc.text('- Overall Focus Stability: Healthy', 25, 75);
-      doc.text(`- Avg Cognitive Load: ${data?.avg_cognitive_load || 'N/A'}/100`, 25, 82);
-      doc.text('- Comprehension Estimate: ~80%', 25, 89);
-      
-      doc.setFontSize(14);
-      doc.text('Observed Difficulties', 20, 105);
-      doc.setFontSize(11);
-      doc.text('- Phoneme processing issues detected in "-tion" syllables', 25, 115);
-      doc.text('- Occasional working memory bottlenecks on complex sentences', 25, 122);
-      
-      doc.setFontSize(14);
-      doc.text('Behavioral Patterns', 20, 138);
-      doc.setFontSize(11);
-      doc.text('- Frequent pauses (>3s) during dense paragraph reading', 25, 148);
-      doc.text('- Strong engagement and active recovery utilizing Audio Assist', 25, 155);
-
-      doc.setFontSize(14);
-      doc.text('Recommendations', 20, 171);
-      doc.setFontSize(11);
-      doc.text('- Continue 5-minute daily Phonics Lab practice', 25, 181);
-      doc.text('- Employ Smart Simplifier prior to reading complex instructional texts', 25, 188);
-
-      doc.setFontSize(10);
-      doc.setTextColor(198, 107, 68); // clay color / warning
-      doc.text('CLINICAL NOTE: This is an AI-assisted observational report. It is not a', 20, 260);
-      doc.text('medical diagnosis. It may be used to support professional evaluation.', 20, 266);
-
-      doc.save(`NeuroRead_Report_${userId}.pdf`);
-      setGeneratingReport(false);
-    }, 500);
+  const load = async (id: string) => {
+    try {
+      setData(await dashboardAsync.run(id));
+    } catch {
+      setData(null);
+    }
   };
 
+  useEffect(() => {
+    load(userId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const id = draftId.trim();
+    if (!id) return;
+    storeUserId(id);
+    if (id === userId) load(id);
+    else setUserId(id);
+  };
+
+  const sessions = data?.session_history || [];
+  const trendData = useMemo(
+    () => (data?.improvement_trend || []).map((v, idx) => ({ session: idx + 1, load: Math.round(Number(v)) })),
+    [data],
+  );
+  const totalMinutes = sessions.reduce((sum, s) => sum + Number(s.reading_time || 0), 0);
+  const dist = data?.difficulty_distribution;
+
+  const loading = dashboardAsync.loading && !data;
+  const failed = !dashboardAsync.loading && dashboardAsync.error;
+
   return (
-    <div id="dashboard" className="py-16 px-6 max-w-7xl mx-auto animate-in fade-in duration-700">
-      {/* Supportive Header */}
-      <div className="mb-16 flex flex-col md:flex-row items-center justify-between gap-6 max-w-6xl mx-auto">
-        <div className="text-left">
-          <div className="w-16 h-16 rounded-2xl bg-moss/5 flex items-center justify-center mb-6">
-            <span className="iconify text-3xl text-moss" data-icon="solar:chart-2-bold-duotone" />
-          </div>
-          <h2 className="text-4xl font-medium text-moss mb-4 tracking-tight">Your Growth Journey</h2>
-          <p className="text-text-muted text-lg leading-relaxed max-w-xl">
-            Every step counts! Here is a look at your amazing progress and what we can explore next.
+    <div id="dashboard" className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
+      <header className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="max-w-2xl">
+          <h1 className="text-3xl sm:text-4xl">Your progress</h1>
+          <p className="mt-3 text-lg text-muted">
+            Built from the reading sessions saved under your learner ID. Each simplified text you read counts as a session.
           </p>
         </div>
-        
-        {/* Doctor Report Action */}
-        <button 
-          onClick={generateReport}
-          disabled={generatingReport}
-          className="shrink-0 px-8 py-4 bg-white border border-moss/10 rounded-2xl text-moss font-bold flex items-center gap-3 hover:bg-moss hover:text-white transition-all shadow-sm hover:shadow-lg disabled:opacity-50"
-        >
-          {generatingReport ? (
-             <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-          ) : (
-             <span className="iconify text-2xl" data-icon="solar:document-medicine-bold-duotone" />
-          )}
-          {generatingReport ? 'Generating...' : 'Export Clinical Report'}
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Metrics */}
-        {/* Left Column: Insights & Actions */}
-        <div className="lg:col-span-2 space-y-8">
-          
-          <div className="bg-white rounded-[3rem] p-10 border border-moss/5 shadow-[0_8px_20px_rgba(0,0,0,0.04)] hover:-translate-y-1 transition-all duration-300">
-            <h3 className="text-2xl font-bold text-moss mb-6 flex items-center gap-3">
-              <span className="iconify text-clay text-3xl" data-icon="solar:lightbulb-minimalistic-bold-duotone" />
-              AI Insights
-            </h3>
-            <div className="space-y-4">
-              {data?.insights ? data.insights.map((insight: any, idx: number) => {
-                let colorClass = 'bg-gray-50/50 border-gray-100';
-                let iconClass = 'text-gray-500';
-                let titleClass = 'text-gray-900';
-                let descClass = 'text-gray-800/80';
-                let iconName = 'solar:info-circle-bold-duotone';
-
-                if (insight.type === 'struggle') {
-                  colorClass = 'bg-red-50/50 border-red-100';
-                  iconClass = 'text-red-500';
-                  titleClass = 'text-red-900';
-                  descClass = 'text-red-800/80';
-                  iconName = 'solar:danger-triangle-bold-duotone';
-                } else if (insight.type === 'phonics') {
-                  colorClass = 'bg-orange-50/50 border-orange-100';
-                  iconClass = 'text-orange-500';
-                  titleClass = 'text-orange-900';
-                  descClass = 'text-orange-800/80';
-                  iconName = 'solar:target-bold-duotone';
-                } else if (insight.type === 'success') {
-                  colorClass = 'bg-green-50/50 border-green-100';
-                  iconClass = 'text-green-600';
-                  titleClass = 'text-green-900';
-                  descClass = 'text-green-800/80';
-                  iconName = 'solar:star-fall-bold-duotone';
-                }
-
-                return (
-                  <div key={idx} className={`p-6 ${colorClass} border rounded-3xl flex items-start gap-4`}>
-                    <span className={`iconify text-2xl outline-none shadow-none ${iconClass} shrink-0 mt-1`} data-icon={iconName} />
-                    <div>
-                      <h4 className={`font-bold ${titleClass} text-lg mb-1`}>{insight.title}</h4>
-                      <p className={`text-sm ${descClass} leading-relaxed`}>{insight.desc}</p>
-                    </div>
-                  </div>
-                );
-              }) : (
-                <div className="text-sm text-text-muted">Loading insights...</div>
-              )}
-            </div>
+        <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div>
+            <label htmlFor="dashboard-user" className="mb-1 block text-sm font-bold text-muted">Learner ID</label>
+            <input
+              id="dashboard-user"
+              value={draftId}
+              onChange={(e) => setDraftId(e.target.value)}
+              className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 sm:w-56"
+            />
           </div>
+          <button type="submit" className="rounded-xl border border-line bg-surface px-5 py-2.5 font-bold hover:bg-ink/5">
+            Load
+          </button>
+        </form>
+      </header>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             <div onClick={() => onNavigate?.('practice')} className="bg-moss rounded-[2.5rem] p-8 border border-moss shadow-[0_8px_20px_rgba(46,64,54,0.15)] hover:-translate-y-1 transition-all duration-300 text-white cursor-pointer group">
-                <div className="flex justify-between items-start mb-6">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 block">Action</span>
-                  <span className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white group-hover:text-moss transition-colors">
-                    <span className="iconify text-xl" data-icon="solar:magic-stick-3-bold" />
-                  </span>
-                </div>
-                <h4 className="text-2xl font-bold mb-2">Practice Phonics Now</h4>
-                <p className="text-white/70 text-sm">Jump directly into a 5-minute targeted phonics session to boost fluency.</p>
-             </div>
-             
-             <div onClick={() => onNavigate?.('assistive')} className="bg-clay rounded-[2.5rem] p-8 border border-clay shadow-[0_8px_20px_rgba(198,107,68,0.15)] hover:-translate-y-1 transition-all duration-300 text-white cursor-pointer group">
-                <div className="flex justify-between items-start mb-6">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 block">Action</span>
-                  <span className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white group-hover:text-clay transition-colors">
-                    <span className="iconify text-xl" data-icon="solar:settings-bold" />
-                  </span>
-                </div>
-                <h4 className="text-2xl font-bold mb-2">Switch to Simpler Mode</h4>
-                <p className="text-white/70 text-sm">Automate text simplification for your upcoming reading tasks.</p>
-             </div>
-          </div>
-
-          {/* Session History */}
-          <div className="bg-white rounded-[3rem] p-10 border border-moss/5 shadow-[0_8px_20px_rgba(0,0,0,0.04)] hover:-translate-y-1 transition-all duration-300">
-            <h3 className="text-2xl font-bold text-moss mb-6 flex items-center gap-3">
-              <span className="iconify text-clay text-3xl" data-icon="solar:history-bold-duotone" />
-              Recent Sessions
-            </h3>
-            {data?.session_history && data.session_history.length > 0 ? (
-              <div className="space-y-4">
-                {data.session_history.slice(-5).reverse().map((session: any, idx: number) => (
-                  <div key={idx} className="p-5 border border-gray-100 rounded-3xl flex justify-between items-center bg-gray-50/50 hover:bg-white transition-colors">
-                    <div>
-                      <h4 className="font-bold text-gray-900 text-md">Session #{session.session_id}</h4>
-                      <p className="text-sm text-gray-500 mt-1">
-                        {new Date(session.timestamp).toLocaleDateString()} at {new Date(session.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </p>
-                    </div>
-                    <div className="flex gap-6 text-sm font-medium">
-                      <div className="flex flex-col items-center">
-                        <span className="text-gray-400 text-xs uppercase tracking-wider mb-1">Time</span>
-                        <span className="text-moss">{Number(session.reading_time).toFixed(1)}m</span>
-                      </div>
-                      <div className="flex flex-col items-center">
-                        <span className="text-gray-400 text-xs uppercase tracking-wider mb-1">Errors</span>
-                        <span className="text-orange-500">{session.errors || 0}</span>
-                      </div>
-                      <div className="flex flex-col items-center">
-                        <span className="text-gray-400 text-xs uppercase tracking-wider mb-1">Pauses</span>
-                        <span className="text-blue-500">{session.pauses || 0}</span>
-                      </div>
-                      <div className="flex flex-col items-center">
-                        <span className="text-gray-400 text-xs uppercase tracking-wider mb-1">Load</span>
-                        <span className="text-clay">{Number(session.cognitive_load).toFixed(0)}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-text-muted">No session history available yet.</div>
-            )}
-          </div>
+      {loading && (
+        <div role="status" aria-label="Loading your progress" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-28 animate-pulse rounded-2xl bg-ink/5" />
+          ))}
         </div>
+      )}
 
-        {/* Right Column: Trending & User */}
+      {failed && (
+        <div className="rounded-3xl border border-line bg-surface p-8 text-center">
+          <p className="mb-4 text-lg">{friendlyError(dashboardAsync.error, "Your progress couldn't be loaded.")}</p>
+          <button
+            type="button"
+            onClick={() => load(userId)}
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 font-bold text-white hover:bg-primary/90"
+          >
+            <RotateCw className="h-4 w-4" aria-hidden="true" /> Try again
+          </button>
+        </div>
+      )}
+
+      {data && sessions.length === 0 && (
+        <div className="rounded-3xl border border-dashed border-line bg-surface p-8 text-center sm:p-12">
+          <BookOpenText className="mx-auto mb-4 h-10 w-10 text-primary" aria-hidden="true" />
+          <h2 className="text-2xl">No sessions yet</h2>
+          <p className="mx-auto mt-2 max-w-md text-muted">
+            Simplify a text and read it through. When you close the simplifier, the session is saved here.
+          </p>
+          <button
+            type="button"
+            onClick={() => onNavigate?.('read')}
+            className="mt-6 rounded-xl bg-primary px-6 py-3 font-bold text-white hover:bg-primary/90"
+          >
+            Simplify a text
+          </button>
+        </div>
+      )}
+
+      {data && sessions.length > 0 && (
         <div className="space-y-8">
-          {/* Trend chart card (tertiary) */}
-          <div className="bg-white rounded-[2.5rem] p-8 border border-moss/5 shadow-[0_8px_20px_rgba(0,0,0,0.04)] hover:-translate-y-1 transition-all">
-            <h3 className="text-lg font-bold text-moss mb-6 flex items-center gap-2">
-              <span className="iconify text-clay" data-icon="solar:graph-bold-duotone" />
-              Cognitive Load Trend
-            </h3>
-            <div className="h-48 w-full opacity-60">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trendData}>
-                  <XAxis dataKey="session" hide />
-                  <YAxis hide domain={[0, 100]} />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)' }} 
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="load" 
-                    stroke="#2E4036" 
-                    strokeWidth={3} 
-                    dot={false} 
-                    activeDot={{ r: 6 }} 
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-4 flex justify-between items-center text-xs font-bold uppercase tracking-widest">
-              <span className="text-text-muted">Avg Load: <span className="text-moss">{data?.avg_cognitive_load ?? '—'}</span></span>
-              <span className="text-moss bg-moss/10 px-3 py-1 rounded-full">Healthy</span>
-            </div>
+          <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {[
+              ['Sessions', String(sessions.length)],
+              ['Reading time', formatMinutes(totalMinutes)],
+              ['Average reading load', `${Math.round(data.avg_cognitive_load ?? 0)} / 100`],
+              ['Texts by difficulty', dist ? `${dist.low} · ${dist.moderate} · ${dist.high}` : '—'],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+                <dt className="text-sm text-muted">{label}</dt>
+                <dd className="mt-1 font-display text-2xl font-bold tabular-nums">{value}</dd>
+                {label === 'Texts by difficulty' && <dd className="text-xs text-muted">low · moderate · high</dd>}
+              </div>
+            ))}
+          </dl>
+
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+            <section aria-labelledby="trend-heading" className="rounded-3xl border border-line bg-surface p-6 lg:col-span-2">
+              <h2 id="trend-heading" className="text-xl">Reading load per session</h2>
+              <p className="mb-4 text-sm text-muted">Lower means the text was easier to take in. 0 to 100.</p>
+              <div className="h-60 w-full text-primary" aria-hidden="true">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendData} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.12} />
+                    <XAxis dataKey="session" tick={{ fill: 'currentColor', fontSize: 12 }} stroke="currentColor" strokeOpacity={0.3} />
+                    <YAxis domain={[0, 100]} tick={{ fill: 'currentColor', fontSize: 12 }} stroke="currentColor" strokeOpacity={0.3} />
+                    <Tooltip formatter={(v) => [`${v} / 100`, 'Load']} labelFormatter={(l) => `Session ${l}`} />
+                    <Line type="monotone" dataKey="load" stroke="currentColor" strokeWidth={3} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="sr-only">
+                Reading load by session: {trendData.map((d) => `session ${d.session}: ${d.load}`).join(', ')}.
+              </p>
+            </section>
+
+            <section aria-labelledby="insights-heading" className="rounded-3xl border border-line bg-surface p-6">
+              <h2 id="insights-heading" className="mb-4 text-xl">What we noticed</h2>
+              <ul className="space-y-3">
+                {(data.insights || []).map((insight, idx) => {
+                  const style = INSIGHT_STYLE[insight.type] || { Icon: Info, tone: 'border-line bg-paper text-primary' };
+                  return (
+                    <li key={idx} className={`flex gap-3 rounded-2xl border p-4 ${style.tone}`}>
+                      <style.Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                      <div className="text-ink">
+                        <p className="font-bold">{insight.title}</p>
+                        <p className="text-sm text-muted">{insight.desc}</p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
           </div>
 
-          {/* User Settings */}
-          <div className="bg-moss/5 rounded-[2.5rem] p-8 border border-moss/10">
-            <h4 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-4">Experience Sync</h4>
-            <div className="space-y-4">
-              <input
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                className="w-full rounded-2xl border border-moss/10 bg-white px-4 py-3 text-sm text-moss focus:outline-none focus:ring-2 focus:ring-moss/20 transition-all font-medium"
-                placeholder="Enter User ID"
-              />
-              <button 
-                onClick={dashboardAsync.retry}
-                className="w-full py-3 bg-white border border-moss/10 text-moss rounded-2xl font-bold text-sm hover:bg-moss hover:text-white transition-all shadow-sm hover:shadow-md"
+          <section aria-labelledby="sessions-heading" className="rounded-3xl border border-line bg-surface p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 id="sessions-heading" className="text-xl">Recent sessions</h2>
+              <button
+                type="button"
+                onClick={() => downloadReport(userId, data, sessions)}
+                className="inline-flex items-center gap-2 rounded-xl border border-line px-4 py-2 font-bold hover:bg-ink/5"
               >
-                Sync Data
+                <Download className="h-4 w-4" aria-hidden="true" /> Download report (PDF)
               </button>
             </div>
-          </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-left">
+                <thead className="text-sm text-muted">
+                  <tr className="border-b border-line">
+                    <th scope="col" className="py-2 pr-4 font-bold">Date</th>
+                    <th scope="col" className="py-2 pr-4 font-bold">Reading time</th>
+                    <th scope="col" className="py-2 pr-4 font-bold">Load</th>
+                    <th scope="col" className="py-2 pr-4 font-bold">Tutor questions</th>
+                    <th scope="col" className="py-2 font-bold">Words looked up</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {sessions.slice(-8).reverse().map((s) => (
+                    <tr key={s.session_id} className="border-b border-line last:border-0">
+                      <td className="py-3 pr-4">
+                        {new Date(s.timestamp).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })},{' '}
+                        {new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="py-3 pr-4">{formatMinutes(Number(s.reading_time))}</td>
+                      <td className="py-3 pr-4">{Math.round(s.cognitive_load)}</td>
+                      <td className="py-3 pr-4">{s.pauses || 0}</td>
+                      <td className="py-3">{s.errors || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-          {/* Supportive Footer */}
-          <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-lg shadow-blue-900/20">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none" />
-            <h4 className="text-2xl font-bold mb-3 relative z-10">You're doing great, {userId.split('-')[0]}!</h4>
-            <p className="text-sm text-white/80 leading-relaxed relative z-10 font-medium tracking-wide">
-              Reading 15 minutes a day builds a lifetime of knowledge. Keep going!
-            </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => onNavigate?.('practice')}
+              className="flex items-start gap-4 rounded-3xl bg-primary p-6 text-left text-white hover:bg-primary/90"
+            >
+              <Puzzle className="mt-1 h-6 w-6 shrink-0" aria-hidden="true" />
+              <span>
+                <span className="block font-display text-xl font-bold">Practise with a game</span>
+                <span className="mt-1 block text-white/85">A one-minute round on spelling, rhymes or syllables.</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate?.('read')}
+              className="flex items-start gap-4 rounded-3xl border border-line bg-surface p-6 text-left hover:border-primary/60"
+            >
+              <BookOpenText className="mt-1 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
+              <span>
+                <span className="block font-display text-xl font-bold">Simplify a text</span>
+                <span className="mt-1 block text-muted">Paste something you need to read and get a plainer version.</span>
+              </span>
+            </button>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
-

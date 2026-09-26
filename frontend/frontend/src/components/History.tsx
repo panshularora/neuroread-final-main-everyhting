@@ -1,23 +1,25 @@
 import { useEffect, useState } from 'react';
-import jsPDF from 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm';
+import jsPDF from 'jspdf';
+import { ChevronDown, Download } from 'lucide-react';
 import { getDashboard } from '../services/api';
 
-function Bar({ heightPct, label, colorClass, title }) {
+function Bar({ heightPct, label, high, title }) {
   return (
-    <div className="flex-1 flex flex-col items-center gap-1">
-      <div
-        className={`w-full rounded-t ${colorClass} hover:opacity-90 transition-colors cursor-default`}
+    <li className="flex h-full flex-1 flex-col items-center justify-end gap-1" title={title}>
+      <span
+        className={`w-full max-w-[2.5rem] rounded-t ${high ? 'bg-accent/60' : 'bg-primary/40'}`}
         style={{ height: `${Math.min(100, Math.max(5, heightPct))}%` }}
-        title={title}
       />
-      <span className="text-[9px] text-charcoal/40 truncate w-full text-center">{label}</span>
-    </div>
+      <span className="w-full truncate text-center text-xs text-muted">{label}</span>
+      <span className="sr-only">{title}</span>
+    </li>
   );
 }
 
 export default function History({ userId }) {
   const [data, setData] = useState<any>(null);
   const [expandedId, setExpandedId] = useState<any>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -26,7 +28,7 @@ export default function History({ userId }) {
         const res = await getDashboard(userId || 'demo-user-001');
         if (mounted) setData(res);
       } catch {
-        // failed to fetch history
+        if (mounted) setFailed(true);
       }
     })();
     return () => { mounted = false; };
@@ -83,137 +85,114 @@ export default function History({ userId }) {
   const avgLoad = data?.avg_cognitive_load || 0;
 
   return (
-    <section id="history" className="py-24 bg-cream relative z-20 border-t border-moss/8">
-      <div className="max-w-5xl mx-auto px-6">
-        <div className="flex items-start justify-between mb-12 flex-wrap gap-4">
+    <section id="history" aria-labelledby="history-title" className="border-t border-line">
+      <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <span className="font-mono text-xs text-moss uppercase tracking-wider block mb-3">Your Progress</span>
-            <h2 className="md:text-5xl text-charcoal text-4xl font-medium tracking-tight">Session History</h2>
-            <p className="text-charcoal/50 text-sm mt-2">Past reading sessions and cognitive improvement over time.</p>
+            <h2 id="history-title" className="text-3xl text-ink">Your recent sessions</h2>
+            <p className="mt-2 text-muted">Each simplified passage is logged with reading time, pauses and a reading-load score.</p>
           </div>
-          <div className="flex items-center gap-3 flex-wrap mt-2">
-            <button
-              onClick={handleExport}
-              disabled={sessions.length === 0}
-              className="export-btn flex items-center gap-2 bg-moss text-cream rounded-full px-5 py-2.5 text-xs font-medium hover:scale-105 transition-transform shadow-lg shadow-moss/20 disabled:opacity-50"
-            >
-              <span className="iconify" data-icon="solar:download-linear" />
-              Export Report
-            </button>
-            <div className="flex items-center gap-2 bg-white border border-moss/10 rounded-full px-4 py-2 text-xs">
-              <span className="w-2 h-2 rounded-full bg-moss" />
-              <span className="text-charcoal/60">{sessions.length} sessions</span>
-            </div>
-            <div className="flex items-center gap-2 bg-white border border-moss/10 rounded-full px-4 py-2 text-xs">
-              <span className="w-2 h-2 rounded-full bg-clay" />
-              <span className="text-charcoal/60">Avg Load: {Math.round(avgLoad)}</span>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={sessions.length === 0}
+            className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-bold text-ink hover:border-primary/40 disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            Download PDF report
+          </button>
         </div>
 
-        <div className="bg-white border border-moss/10 rounded-[2rem] p-6 mb-8">
-          <p className="text-[10px] font-medium text-charcoal/40 uppercase tracking-wider mb-4">
-            Cognitive Score Over Time
+        {sessions.length === 0 ? (
+          <p className="rounded-3xl border border-dashed border-line bg-surface p-6 text-base text-muted">
+            {failed
+              ? 'Session history is stored by the NeuroRead backend, which is not connected right now.'
+              : 'No sessions yet. Simplify a passage and it will show up here.'}
           </p>
-          <div className="flex items-end gap-2 h-20">
-            {sessions.length > 0 ? sessions.slice(-15).map((s: any, idx: number) => {
-              const dateObj = new Date(s.timestamp);
-              const labelDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
-              return (
-                 <Bar 
-                   key={idx} 
-                   heightPct={s.cognitive_load} 
-                   label={labelDate} 
-                   colorClass={s.cognitive_load > 60 ? "bg-clay/50 hover:bg-clay/70" : "bg-moss/25 hover:bg-moss/50"} 
-                   title={`Load: ${Math.round(s.cognitive_load)}`} 
-                 />
-              );
-            }) : (
-              <span className="text-sm text-charcoal/40">No sessions recorded yet.</span>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-3" id="history-list">
-          {sessions.slice().reverse().map((s: any) => {
-            const isOpen = expandedId === s.session_id;
-            const accentBg = s.cognitive_load > 60 ? 'bg-clay/10' : 'bg-moss/8';
-            const accentText = s.cognitive_load > 60 ? 'text-clay' : 'text-moss';
-            const hoverBg = s.cognitive_load > 60 ? 'hover:bg-clay/[0.03]' : 'hover:bg-moss/[0.03]';
-            const border = s.cognitive_load > 60 ? 'border-clay/25' : 'border-moss/10';
-
-            return (
-              <div
-                key={s.session_id}
-                className={`history-row rounded-[1.25rem] overflow-hidden border ${border} bg-white ${isOpen ? 'expanded' : ''}`}
-              >
-                <button
-                  type="button"
-                  onClick={() => setExpandedId(isOpen ? null : s.session_id)}
-                  className={`w-full flex items-center justify-between px-6 py-4 text-left ${hoverBg} transition-colors`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`w-8 h-8 rounded-full ${accentBg} flex items-center justify-center`}>
-                      <span
-                        className={`iconify ${accentText}`}
-                        data-icon="solar:document-text-linear"
-                        style={{ width: '.9rem', height: '.9rem' }}
-                      />
-                    </div>
-                    <div>
-                      <span className="font-medium text-sm text-charcoal">Focus Session #{s.session_id}</span>
-                      <span className="text-xs text-charcoal/40 ml-3">
-                        {new Date(s.timestamp).toLocaleDateString()} {new Date(s.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-6">
-                    <span className="text-xs text-charcoal/60 hidden sm:block">
-                      Load: <strong className="text-charcoal">{Math.round(s.cognitive_load)}</strong>
-                    </span>
-                    <span className="text-xs text-charcoal/60 hidden sm:block">
-                      Time: <strong className="text-charcoal">{Number(s.reading_time).toFixed(1)}m</strong>
-                    </span>
-                    <span
-                      className="iconify history-chevron text-charcoal/40"
-                      data-icon="solar:alt-arrow-down-linear"
-                      style={{ width: '1rem', height: '1rem' }}
-                    />
-                  </div>
-                </button>
-
-                <div className={`history-row-body ${isOpen ? 'open' : ''}`}>
-                  <div className="grid grid-cols-4 gap-4 mb-4">
-                    <div className="bg-moss/5 rounded-xl p-3 text-center">
-                      <p className="text-[10px] text-charcoal/40 uppercase tracking-wider mb-1">Time</p>
-                      <p className="text-lg font-medium text-charcoal">{Number(s.reading_time).toFixed(1)}m</p>
-                    </div>
-                    <div className="bg-clay/8 rounded-xl p-3 text-center">
-                      <p className="text-[10px] text-charcoal/40 uppercase tracking-wider mb-1">Errors</p>
-                      <p className="text-lg font-medium text-clay">{s.errors}</p>
-                    </div>
-                    <div className="bg-moss/5 rounded-xl p-3 text-center">
-                      <p className="text-[10px] text-charcoal/40 uppercase tracking-wider mb-1">Pauses</p>
-                      <p className="text-lg font-medium text-moss">{s.pauses}</p>
-                    </div>
-                    <div className="bg-moss/5 rounded-xl p-3 text-center">
-                      <p className="text-[10px] text-charcoal/40 uppercase tracking-wider mb-1">Load</p>
-                      <p className="text-lg font-medium text-charcoal">{Math.round(s.cognitive_load)}</p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-charcoal/50 leading-relaxed mb-2">
-                    {s.cognitive_load > 60 
-                       ? "This text posed moderate to high cognitive difficulty. More frequent pauses or error corrections were identified." 
-                       : "Excellent focus. This reading session completed smoothly with well-managed cognitive load."}
-                  </p>
-                </div>
+        ) : (
+          <>
+            <dl className="mb-6 grid grid-cols-2 gap-3 sm:max-w-md">
+              <div className="rounded-2xl border border-line bg-surface p-4">
+                <dt className="text-sm text-muted">Sessions</dt>
+                <dd className="text-2xl font-bold text-ink">{sessions.length}</dd>
               </div>
-            );
-          })}
-        </div>
+              <div className="rounded-2xl border border-line bg-surface p-4">
+                <dt className="text-sm text-muted">Average reading load</dt>
+                <dd className="text-2xl font-bold text-ink">{Math.round(avgLoad)}</dd>
+              </div>
+            </dl>
+
+            <div className="mb-6 rounded-3xl border border-line bg-surface p-5">
+              <h3 className="mb-4 text-base text-ink">Reading load per session</h3>
+              <ol className="flex h-28 items-end gap-2" aria-label="Reading load of the last sessions">
+                {sessions.slice(-15).map((s: any, idx: number) => {
+                  const d = new Date(s.timestamp);
+                  return (
+                    <Bar
+                      key={idx}
+                      heightPct={s.cognitive_load}
+                      label={`${d.getMonth() + 1}/${d.getDate()}`}
+                      high={s.cognitive_load > 60}
+                      title={`Session ${s.session_id}: reading load ${Math.round(s.cognitive_load)}`}
+                    />
+                  );
+                })}
+              </ol>
+            </div>
+
+            <ul className="space-y-2" id="history-list">
+              {sessions.slice().reverse().map((s: any) => {
+                const isOpen = expandedId === s.session_id;
+                const high = s.cognitive_load > 60;
+                return (
+                  <li key={s.session_id} className={`history-row overflow-hidden rounded-2xl border bg-surface ${high ? 'border-accent/30' : 'border-line'} ${isOpen ? 'expanded' : ''}`}>
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      aria-controls={`session-${s.session_id}`}
+                      onClick={() => setExpandedId(isOpen ? null : s.session_id)}
+                      className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-ink/[0.03]"
+                    >
+                      <span>
+                        <span className="block font-bold text-ink">Session {s.session_id}</span>
+                        <span className="text-sm text-muted">
+                          {new Date(s.timestamp).toLocaleDateString()} at{' '}
+                          {new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-5 text-sm text-muted">
+                        <span className="hidden sm:inline">Load <b className="text-ink">{Math.round(s.cognitive_load)}</b></span>
+                        <span className="hidden sm:inline">Time <b className="text-ink">{Number(s.reading_time).toFixed(1)} min</b></span>
+                        <ChevronDown className="history-chevron h-5 w-5" aria-hidden="true" />
+                      </span>
+                    </button>
+                    <div id={`session-${s.session_id}`} className={`history-row-body ${isOpen ? 'open' : ''}`}>
+                      <dl className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        {[
+                          ['Time', `${Number(s.reading_time).toFixed(1)} min`],
+                          ['Errors', s.errors],
+                          ['Pauses', s.pauses],
+                          ['Reading load', Math.round(s.cognitive_load)],
+                        ].map(([k, v]) => (
+                          <div key={k} className="rounded-xl bg-paper p-3">
+                            <dt className="text-sm text-muted">{k}</dt>
+                            <dd className="text-lg font-bold text-ink">{v}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <p className="text-sm text-muted">
+                        {high
+                          ? 'This passage was hard going: expect more pauses and corrections at this level.'
+                          : 'This session went smoothly with a manageable reading load.'}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
       </div>
     </section>
   );
 }
-

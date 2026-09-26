@@ -1,26 +1,24 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
+import { Check, Lightbulb, Volume2 } from 'lucide-react';
 import { useAccessibilityStore } from '../stores/accessibilityStore';
 
-// Phoneme colors matching backend
-const PHONEME_COLORS: Record<string, string | null> = {
-  b: '#4A90D9',
-  d: '#E8734A',
-  p: '#9B59B6',
-  q: '#27AE60',
-  n: null,
-  u: null,
+// Letters that are easy to mirror get a fixed colour when letter colouring is on.
+const PHONEME_COLORS: Record<string, string> = {
+  b: '#2F6FB5',
+  d: '#C4552B',
+  p: '#7A4A9E',
+  q: '#237A4B',
 };
-
-interface Token { char: string; color: string | null }
-interface WordAnnotation { word: string; tokens: Token[] }
 
 function colorizeWord(word: string, coloredLetters: boolean): React.ReactNode {
   if (!coloredLetters) return word;
   return word.split('').map((char, i) => {
-    const color = PHONEME_COLORS[char.toLowerCase()] ?? null;
-    return color
-      ? <span key={i} style={{ color, fontWeight: 700 }}>{char}</span>
-      : <span key={i}>{char}</span>;
+    const color = PHONEME_COLORS[char.toLowerCase()];
+    return color ? (
+      <span key={i} style={{ color, fontWeight: 700 }}>{char}</span>
+    ) : (
+      <span key={i}>{char}</span>
+    );
   });
 }
 
@@ -43,232 +41,134 @@ interface ExerciseCardProps {
 export default function ExerciseCard({ exercise, onAnswer, disabled, feedback }: ExerciseCardProps) {
   const [showHint, setShowHint] = useState(false);
   const [spellingInput, setSpellingInput] = useState('');
-  const accessibility = useAccessibilityStore();
+  const { coloredLetters, ttsSpeed } = useAccessibilityStore();
 
-  const cardStyle: React.CSSProperties = {
-    background: '#fff',
-    borderRadius: 24,
-    padding: 32,
-    boxShadow: '0 4px 24px rgba(0,0,0,0.07)',
-    border: feedback === 'correct'
-      ? '2px solid #4CAF50'
-      : feedback === 'incorrect'
-      ? '2px solid #FF9800'
-      : '2px solid rgba(0,0,0,0.05)',
-    fontFamily: accessibility.font === 'opendyslexic'
-      ? 'OpenDyslexic, sans-serif'
-      : accessibility.font === 'arial'
-      ? 'Arial, sans-serif'
-      : 'inherit',
-    fontSize: `${accessibility.fontSize}px`,
-    lineHeight: accessibility.lineHeight,
-    letterSpacing: `${accessibility.letterSpacing}em`,
-    animation: feedback === 'correct'
-      ? 'correctPulse 0.6s ease'
-      : feedback === 'incorrect'
-      ? 'gentleShake 0.5s ease'
-      : 'none',
-    maxWidth: 600,
-  };
+  const border =
+    feedback === 'correct' ? 'border-ok' : feedback === 'incorrect' ? 'border-warn' : 'border-line';
 
   function speakWord(text: string) {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = accessibility.ttsSpeed;
-      window.speechSynthesis.speak(utterance);
-    }
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = ttsSpeed;
+    window.speechSynthesis.speak(utterance);
   }
 
-  function renderPrompt() {
-    if (!exercise.prompt) return null;
-    // Render with phoneme coloring if enabled
-    if (accessibility.coloredLetters) {
-      const words = exercise.prompt.split(' ');
-      return (
-        <p className="a11y-text-content" style={{ fontSize: 'inherit', marginBottom: 24, fontWeight: 500, lineHeight: 1.7 }}>
-          {words.map((w, i) => (
-            <span key={i}>{colorizeWord(w, true)}{i < words.length - 1 ? ' ' : ''}</span>
-          ))}
-        </p>
-      );
-    }
-    return <p style={{ marginBottom: 24, fontWeight: 500, lineHeight: 1.7 }}>{exercise.prompt}</p>;
+  function submitSpelling() {
+    const value = spellingInput.trim();
+    if (!value || disabled) return;
+    onAnswer(value);
+    setSpellingInput('');
   }
 
-  function renderMultipleChoice() {
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: exercise.options.length <= 2 ? '1fr 1fr' : '1fr 1fr', gap: 12 }}>
-        {exercise.options.map((opt, i) => (
-          <button
-            key={i}
-            onClick={() => !disabled && onAnswer(opt)}
-            disabled={disabled}
-            style={{
-              padding: '16px 20px',
-              borderRadius: 14,
-              border: '2px solid rgba(46,64,54,0.1)',
-              background: '#f9f9f9',
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              fontSize: '1em',
-              fontWeight: 600,
-              fontFamily: 'inherit',
-              letterSpacing: 'inherit',
-              transition: 'all 0.15s ease',
-              color: '#2E4036',
-            }}
-            onMouseEnter={(e) => {
-              if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = '#e8f5e9';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = '#f9f9f9';
-            }}
-          >
-            {accessibility.coloredLetters ? colorizeWord(opt, true) : opt}
-          </button>
-        ))}
-      </div>
-    );
-  }
-
-  function renderSpelling() {
-    return (
-      <div>
-        {/* Audio play button */}
-        <button
-          onClick={() => speakWord(exercise.correct_answer)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '12px 20px', borderRadius: 14, border: 'none',
-            background: '#E65100', color: '#fff', cursor: 'pointer',
-            fontSize: '1em', fontWeight: 700, fontFamily: 'inherit',
-            marginBottom: 16,
-          }}
-        >
-          🔊 Hear the word
-        </button>
-        <input
-          type="text"
-          placeholder="Type the word here..."
-          value={spellingInput}
-          onChange={(e) => setSpellingInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && spellingInput.trim() && !disabled) {
-              onAnswer(spellingInput.trim());
-            }
-          }}
-          disabled={disabled}
-          style={{
-            width: '100%',
-            padding: '14px 18px',
-            borderRadius: 14,
-            border: '2px solid rgba(46,64,54,0.15)',
-            fontSize: '1.1em',
-            fontFamily: 'inherit',
-            letterSpacing: '0.05em',
-            outline: 'none',
-            marginBottom: 12,
-          }}
-        />
-        <button
-          onClick={() => { if (spellingInput.trim() && !disabled) { onAnswer(spellingInput.trim()); setSpellingInput(''); } }}
-          disabled={disabled || !spellingInput.trim()}
-          style={{
-            padding: '12px 28px', borderRadius: 14, border: 'none',
-            background: '#2d6a4f', color: '#fff', cursor: disabled ? 'not-allowed' : 'pointer',
-            fontSize: '1em', fontWeight: 700, fontFamily: 'inherit',
-            opacity: disabled || !spellingInput.trim() ? 0.5 : 1,
-          }}
-        >
-          Submit →
-        </button>
-      </div>
-    );
-  }
+  const skill = (exercise.target_skill || '').replace(/_/g, ' ');
+  const [passage, question] = exercise.prompt.split('\n\n');
 
   return (
-    <div style={cardStyle}>
-      {/* Skill badge */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <span style={{
-          fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '0.1em', color: '#2d6a4f',
-          background: 'rgba(45,106,79,0.08)', padding: '4px 10px', borderRadius: 20,
-        }}>
-          {(exercise.target_skill || '').replace(/_/g, ' ')}
-        </span>
-        <span style={{
-          fontSize: 11, color: '#999', fontWeight: 600,
-        }}>
-          Difficulty: {Math.round(exercise.difficulty * 100)}%
-        </span>
+    <div className={`max-w-2xl rounded-3xl border-2 bg-surface p-5 sm:p-8 ${border}`}>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+        <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-bold capitalize text-primary">{skill}</span>
+        <span className="text-sm text-muted">Difficulty {Math.round(exercise.difficulty * 100)}%</span>
       </div>
 
-      {/* Feedback banner */}
-      {feedback === 'correct' && (
-        <div style={{
-          padding: '10px 16px', borderRadius: 10, background: 'rgba(76,175,80,0.1)',
-          border: '1px solid #4CAF50', color: '#2e7d32', fontWeight: 600,
-          marginBottom: 16, fontSize: '0.95em',
-        }}>
-          ✓ Correct! Well done! 🎉
-        </div>
-      )}
-      {feedback === 'incorrect' && (
-        <div style={{
-          padding: '10px 16px', borderRadius: 10, background: 'rgba(255,152,0,0.08)',
-          border: '1px solid #FF9800', color: '#e65100', fontWeight: 600,
-          marginBottom: 16, fontSize: '0.95em',
-        }}>
-          Not quite — take another look and try again!
-        </div>
-      )}
-
-      {/* Exercise prompt */}
-      {exercise.type === 'comprehension' ? (
-        <div>
-          <div style={{ background: '#f5f5f5', borderRadius: 12, padding: 16, marginBottom: 20 }}>
-            <p style={{ fontSize: '0.95em', lineHeight: 1.8, color: '#444', fontFamily: 'inherit' }}>
-              {exercise.prompt.split('\n\n')[0]}
-            </p>
-          </div>
-          <p style={{ fontWeight: 600, marginBottom: 20 }}>
-            {exercise.prompt.split('\n\n')[1] || exercise.prompt}
+      <div aria-live="polite">
+        {feedback === 'correct' && (
+          <p className="mb-5 flex items-center gap-2 rounded-xl border border-ok/40 bg-ok/10 px-4 py-3 font-bold text-ok">
+            <Check className="h-5 w-5" aria-hidden="true" /> Correct, well done.
           </p>
-        </div>
-      ) : (
-        renderPrompt()
-      )}
-
-      {/* Exercise body */}
-      {(exercise.type === 'phonics' || exercise.type === 'comprehension' || exercise.type === 'matching') && exercise.options.length > 0
-        ? renderMultipleChoice()
-        : exercise.type === 'spelling'
-        ? renderSpelling()
-        : null
-      }
-
-      {/* Hint */}
-      <div style={{ marginTop: 16 }}>
-        <button
-          onClick={() => setShowHint(h => !h)}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: '#999', fontSize: '0.85em', fontWeight: 600,
-          }}
-        >
-          {showHint ? '▾ Hide hint' : '💡 Need a hint?'}
-        </button>
-        {showHint && (
-          <div style={{
-            marginTop: 8, padding: '10px 14px', borderRadius: 10,
-            background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)',
-            fontSize: '0.9em', color: '#795548', lineHeight: 1.6,
-          }}>
-            {exercise.hint}
-          </div>
+        )}
+        {feedback === 'incorrect' && (
+          <p className="mb-5 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 font-bold text-warn">
+            Not quite. Take another look at the next one.
+          </p>
         )}
       </div>
+
+      {exercise.type === 'comprehension' ? (
+        <>
+          <p className="mb-5 rounded-2xl bg-paper p-4 text-base">{passage}</p>
+          <p className="mb-5 text-lg font-bold">{question || exercise.prompt}</p>
+        </>
+      ) : (
+        exercise.prompt && (
+          <p className="mb-6 text-lg font-bold">
+            {exercise.prompt.split(' ').map((w, i, all) => (
+              <span key={i}>
+                {colorizeWord(w, coloredLetters)}
+                {i < all.length - 1 ? ' ' : ''}
+              </span>
+            ))}
+          </p>
+        )
+      )}
+
+      {exercise.type !== 'spelling' && exercise.options.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {exercise.options.map((opt, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => !disabled && onAnswer(opt)}
+              disabled={disabled}
+              className="rounded-2xl border-2 border-line bg-paper px-5 py-4 text-left text-lg font-bold hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {colorizeWord(opt, coloredLetters)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {exercise.type === 'spelling' && (
+        <div>
+          <button
+            type="button"
+            onClick={() => speakWord(exercise.correct_answer)}
+            className="mb-4 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 font-bold text-white hover:bg-accent/90"
+          >
+            <Volume2 className="h-5 w-5" aria-hidden="true" /> Hear the word
+          </button>
+          <label htmlFor={`spell-${exercise.id}`} className="mb-2 block text-sm font-bold text-muted">
+            Type the word you heard
+          </label>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              id={`spell-${exercise.id}`}
+              type="text"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              value={spellingInput}
+              onChange={(e) => setSpellingInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitSpelling()}
+              disabled={disabled}
+              className="flex-1 rounded-xl border-2 border-line bg-paper px-4 py-3 text-lg tracking-wide focus:border-primary"
+            />
+            <button
+              type="button"
+              onClick={submitSpelling}
+              disabled={disabled || !spellingInput.trim()}
+              className="rounded-xl bg-primary px-6 py-3 font-bold text-white hover:bg-primary/90 disabled:opacity-50"
+            >
+              Check
+            </button>
+          </div>
+        </div>
+      )}
+
+      {exercise.hint && (
+        <div className="mt-6">
+          <button
+            type="button"
+            onClick={() => setShowHint((h) => !h)}
+            aria-expanded={showHint}
+            className="inline-flex items-center gap-2 text-sm font-bold text-muted hover:text-ink"
+          >
+            <Lightbulb className="h-4 w-4" aria-hidden="true" />
+            {showHint ? 'Hide hint' : 'Show a hint'}
+          </button>
+          {showHint && <p className="mt-2 rounded-xl bg-warn/10 px-4 py-3 text-base">{exercise.hint}</p>}
+        </div>
+      )}
     </div>
   );
 }

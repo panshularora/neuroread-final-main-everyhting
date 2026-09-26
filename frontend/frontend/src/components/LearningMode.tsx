@@ -1,23 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { KeyboardEvent } from 'react';
+import { BookOpen, Library, Pause, Play, RotateCcw, Target, Volume2 } from 'lucide-react';
 import ExerciseCard from './ExerciseCard';
 import BKTLiveDisplay from './BKTLiveDisplay';
 import {
-  getPhonics,
   getFlashcard,
-  getSoundMatch,
-  getBuildWord,
-  getRhyme,
-  getPictureMatch,
-  getComprehension,
-  getLesson,
-  getLearningProgress,
-  updateLearningProgress,
   ensureUserId,
-  checkAnswer,
+  startLearningSession,
+  getSessionSkills,
+  submitSessionAnswer,
+  friendlyError,
 } from '../services/api';
 import AudioButton from './AudioButton';
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 interface Exercise {
   id: string;
@@ -37,58 +31,89 @@ interface Skill {
   mastered: boolean;
 }
 
+type SubMode = 'adaptive' | 'read-along' | 'phonics' | 'stories';
+
+const SUB_MODES: { id: SubMode; name: string; Icon: typeof Target }[] = [
+  { id: 'adaptive', name: 'Adaptive practice', Icon: Target },
+  { id: 'read-along', name: 'Read along', Icon: BookOpen },
+  { id: 'phonics', name: 'Phonics lab', Icon: Volume2 },
+  { id: 'stories', name: 'Stories', Icon: Library },
+];
+
 export default function LearningMode({ active }: { active: boolean }) {
-  const [subMode, setSubMode] = useState<'adaptive' | 'read-along' | 'phonics' | 'stories'>('adaptive');
+  const [subMode, setSubMode] = useState<SubMode>('adaptive');
   const [selectedStoryId, setSelectedStoryId] = useState('story-1');
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const userId = ensureUserId();
 
   if (!active) return null;
 
-  const subModes = [
-    { id: 'adaptive', name: 'Adaptive AI', icon: 'solar:magic-stick-3-bold-duotone', color: 'bg-moss/10 text-moss' },
-    { id: 'read-along', name: 'Read Along', icon: 'solar:music-note-bold-duotone', color: 'bg-blue-50 text-blue-600' },
-    { id: 'phonics', name: 'Phonics Lab', icon: 'solar:microphone-3-bold-duotone', color: 'bg-green-50 text-green-600' },
-    { id: 'stories', name: 'Story Mode', icon: 'solar:book-bold-duotone', color: 'bg-purple-50 text-purple-600' },
-  ];
+  // Arrow keys move between tabs, as in the WAI-ARIA tabs pattern.
+  const onTabKey = (e: KeyboardEvent, idx: number) => {
+    const delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const next = SUB_MODES[(idx + delta + SUB_MODES.length) % SUB_MODES.length];
+    setSubMode(next.id);
+    tabRefs.current[next.id]?.focus();
+  };
 
   return (
-    <div id="content-learning" className="py-12 px-6 max-w-7xl mx-auto min-h-[80vh] animate-in fade-in duration-700">
-      <div className="mb-12 text-center max-w-3xl mx-auto">
-        <h2 className="text-4xl font-medium text-moss mb-4 tracking-tight">Learning Adventure</h2>
-        <p className="text-text-muted text-lg leading-relaxed">
-          Welcome to your reading space. Choose an activity below to start building your skills at your own pace.
+    <div id="content-learning" className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
+      <header className="mb-8 max-w-2xl">
+        <h1 className="text-3xl sm:text-4xl">Learn at your own pace</h1>
+        <p className="mt-3 text-lg text-muted">
+          Short exercises that adjust to how you are doing, stories to read along with, and a phonics lab for letter
+          sounds.
         </p>
+      </header>
+
+      <div role="tablist" aria-label="Learning activities" className="mb-6 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        {SUB_MODES.map((m, idx) => {
+          const selected = subMode === m.id;
+          return (
+            <button
+              key={m.id}
+              ref={(el) => { tabRefs.current[m.id] = el; }}
+              role="tab"
+              id={`tab-${m.id}`}
+              aria-selected={selected}
+              aria-controls="learning-panel"
+              tabIndex={selected ? 0 : -1}
+              onClick={() => setSubMode(m.id)}
+              onKeyDown={(e) => onTabKey(e, idx)}
+              className={`flex items-center gap-2 rounded-xl border px-3 py-3 font-bold sm:px-4 ${
+                selected ? 'border-primary bg-primary text-white' : 'border-line bg-surface text-ink hover:border-primary/50'
+              }`}
+            >
+              <m.Icon className="h-5 w-5" aria-hidden="true" />
+              {m.name}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="flex flex-wrap justify-center gap-4 mb-16">
-        {subModes.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => setSubMode(m.id as any)}
-            className={`flex items-center gap-3 px-6 py-4 rounded-2xl transition-all duration-300 border ${
-              subMode === m.id
-                ? 'bg-white border-moss shadow-md scale-105 text-moss'
-                : 'bg-white/50 border-moss/10 text-text-muted hover:bg-white hover:border-moss/30'
-            }`}
-          >
-            <div className={`w-10 h-10 rounded-xl ${m.color} flex items-center justify-center`}>
-              <span className="iconify text-xl" data-icon={m.icon} />
-            </div>
-            <span className="font-medium">{m.name}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="bg-white rounded-[3rem] p-10 shadow-sm border border-moss/5 min-h-[500px] relative overflow-hidden transition-all duration-500">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-moss/5 rounded-full -mr-32 -mt-32 blur-3xl opacity-50" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-clay/5 rounded-full -ml-32 -mb-32 blur-3xl opacity-50" />
-
-        <div className="relative z-10">
-          {subMode === 'adaptive' && <AdaptiveLearningSection userId={userId} />}
-          {subMode === 'read-along' && <ReadAlongSection userId={userId} selectedStoryId={selectedStoryId} onSelectStory={setSelectedStoryId} />}
-          {subMode === 'phonics' && <PhonicsLabSection userId={userId} />}
-          {subMode === 'stories' && <StoryModeSection userId={userId} selectedStoryId={selectedStoryId} onSelectStory={(id) => { setSelectedStoryId(id); setSubMode('read-along'); }} />}
-        </div>
+      <div
+        id="learning-panel"
+        role="tabpanel"
+        aria-labelledby={`tab-${subMode}`}
+        className="min-h-[480px] rounded-3xl border border-line bg-surface p-5 shadow-card sm:p-8"
+      >
+        {subMode === 'adaptive' && <AdaptiveLearningSection userId={userId} />}
+        {subMode === 'read-along' && (
+          <ReadAlongSection userId={userId} selectedStoryId={selectedStoryId} onSelectStory={setSelectedStoryId} />
+        )}
+        {subMode === 'phonics' && <PhonicsLabSection userId={userId} />}
+        {subMode === 'stories' && (
+          <StoryModeSection
+            userId={userId}
+            selectedStoryId={selectedStoryId}
+            onSelectStory={(id) => {
+              setSelectedStoryId(id);
+              setSubMode('read-along');
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -107,6 +132,7 @@ function AdaptiveLearningSection({ userId }: { userId: string }) {
   const [lastSM2Update, setLastSM2Update] = useState<any>(null);
   const [stats, setStats] = useState({ correct: 0, total: 0, streak: 0, longest_streak: 0 });
   const [answerDisabled, setAnswerDisabled] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const age = parseInt(localStorage.getItem('neuroread-user-age') || '8', 10);
 
@@ -117,17 +143,13 @@ function AdaptiveLearningSection({ userId }: { userId: string }) {
 
   async function startSession() {
     setLoading(true);
+    setLoadError('');
     try {
-      const res = await fetch(`${API_URL}/api/learning/session/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, age, session_type: 'learning' }),
-      });
-      const data = await res.json();
+      const data = await startLearningSession(userId, age, 'learning');
       setSessionId(data.session_id);
       setCurrentExercise(data.first_exercise);
     } catch (err) {
-      console.error('Could not start learning session:', err);
+      setLoadError(friendlyError(err, "Your session couldn't be started. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -136,12 +158,11 @@ function AdaptiveLearningSection({ userId }: { userId: string }) {
   async function loadSkills() {
     if (!sessionId) return;
     try {
-      const res = await fetch(`${API_URL}/api/learning/session/${sessionId}/skills`);
-      const data = await res.json();
+      const data = await getSessionSkills(sessionId);
       setSkills(data.skills || []);
       if (data.session_stats) setStats(data.session_stats);
-    } catch (err) {
-      console.error('Could not load skills:', err);
+    } catch {
+      // The skills panel keeps its last values; the exercise flow is unaffected.
     }
   }
 
@@ -151,16 +172,7 @@ function AdaptiveLearningSection({ userId }: { userId: string }) {
 
     const startTime = Date.now();
     try {
-      const res = await fetch(`${API_URL}/api/learning/session/${sessionId}/answer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          exercise_id: currentExercise.id,
-          answer,
-          response_time_ms: Date.now() - startTime,
-        }),
-      });
-      const data = await res.json();
+      const data = await submitSessionAnswer(sessionId, currentExercise.id, answer, Date.now() - startTime);
 
       setFeedback(data.correct ? 'correct' : 'incorrect');
       setExplanation(data.explanation);
@@ -180,59 +192,61 @@ function AdaptiveLearningSection({ userId }: { userId: string }) {
         setAnswerDisabled(false);
       }, 3000);
     } catch (err) {
-      console.error('Answer submission failed:', err);
+      setLoadError(friendlyError(err, "Your answer couldn't be checked. Please try again."));
       setAnswerDisabled(false);
     }
   }
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <div className="w-16 h-16 rounded-full border-4 border-moss border-t-transparent animate-spin mb-6" />
-        <p className="text-moss font-medium">Starting your learning session...</p>
+      <div className="flex flex-col items-center justify-center py-20" role="status">
+        <div className="mb-5 h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <p className="font-bold text-primary">Starting your session…</p>
       </div>
     );
   }
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+    <div>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h3 className="text-2xl font-medium text-moss">Adaptive Learning</h3>
-          <p className="text-sm text-text-muted">AI-powered exercises that adapt to your level in real-time</p>
+          <h2 className="text-2xl">Adaptive practice</h2>
+          <p className="text-muted">Each answer updates your skill estimates, and the next exercise is picked to match.</p>
         </div>
-        {stats.streak > 0 && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-orange-50 border border-orange-100 rounded-full">
-            <span className="text-lg">🔥</span>
-            <span className="font-bold text-orange-600 text-sm">{stats.streak} in a row!</span>
+        <dl className="flex gap-3 text-sm">
+          <div className="rounded-xl bg-paper px-4 py-2">
+            <dt className="text-muted">Correct</dt>
+            <dd className="text-lg font-bold tabular-nums">
+              {stats.correct}/{stats.total}
+            </dd>
           </div>
-        )}
+          <div className="rounded-xl bg-paper px-4 py-2">
+            <dt className="text-muted">Streak</dt>
+            <dd className="text-lg font-bold tabular-nums">{stats.streak}</dd>
+          </div>
+          <div className="rounded-xl bg-paper px-4 py-2">
+            <dt className="text-muted">Best</dt>
+            <dd className="text-lg font-bold tabular-nums">{stats.longest_streak}</dd>
+          </div>
+        </dl>
       </div>
 
-      {/* Stats row */}
-      <div className="flex gap-4 mb-8 flex-wrap">
-        <div className="px-4 py-2 bg-moss/5 rounded-xl">
-          <span className="text-xs text-moss/60 font-medium uppercase">Correct</span>
-          <div className="font-bold text-moss">{stats.correct}/{stats.total}</div>
-        </div>
-        <div className="px-4 py-2 bg-clay/5 rounded-xl">
-          <span className="text-xs text-clay/60 font-medium uppercase">Best Streak</span>
-          <div className="font-bold text-clay">{stats.longest_streak} 🔥</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
         {/* Exercise area */}
         <div className="lg:col-span-3">
+          {loadError && (
+            <p role="alert" className="mb-4 rounded-2xl border border-err/30 bg-err/5 p-4 text-base text-err">
+              {loadError}
+            </p>
+          )}
           {explanation && (
-            <div style={{
-              padding: '12px 16px', borderRadius: 12, marginBottom: 16,
-              background: feedback === 'correct' ? 'rgba(76,175,80,0.08)' : 'rgba(255,152,0,0.08)',
-              border: `1px solid ${feedback === 'correct' ? '#4CAF50' : '#FF9800'}`,
-              fontWeight: 600, fontSize: 14,
-            }}>
+            <p
+              className={`mb-4 rounded-2xl border px-4 py-3 font-bold ${
+                feedback === 'correct' ? 'border-ok/40 bg-ok/10' : 'border-warn/40 bg-warn/10'
+              }`}
+            >
               {explanation}
-            </div>
+            </p>
           )}
 
           {currentExercise ? (
@@ -243,10 +257,16 @@ function AdaptiveLearningSection({ userId }: { userId: string }) {
               feedback={feedback}
             />
           ) : (
-            <div className="text-center py-16">
-              <p className="text-moss/50 mb-4">No exercise loaded yet.</p>
-              <button onClick={startSession} className="px-6 py-3 bg-moss text-white rounded-xl font-bold">
-                Start Session
+            <div className="rounded-2xl border border-dashed border-line px-6 py-12 text-center">
+              <p className="mb-5 text-base text-muted">
+                {loadError ? 'The first exercise could not be loaded.' : 'No exercise loaded yet.'}
+              </p>
+              <button
+                type="button"
+                onClick={startSession}
+                className="rounded-xl bg-primary px-6 py-3 font-bold text-white hover:bg-primary/90"
+              >
+                {loadError ? 'Try again' : 'Start session'}
               </button>
             </div>
           )}
@@ -392,7 +412,7 @@ const STORIES = [
   }
 ];
 
-function ReadAlongSection({ userId, selectedStoryId, onSelectStory }: { userId: string, selectedStoryId: string, onSelectStory: (id: string) => void }) {
+function ReadAlongSection({ selectedStoryId, onSelectStory }: { userId: string, selectedStoryId: string, onSelectStory: (id: string) => void }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentWordIdx, setCurrentWordIdx] = useState(-1);
   const [speed, setSpeed] = useState(400);
@@ -413,193 +433,192 @@ function ReadAlongSection({ userId, selectedStoryId, onSelectStory }: { userId: 
     return () => clearInterval(timer);
   }, [isPlaying, words.length, speed]);
 
+  const reset = () => { setIsPlaying(false); setCurrentWordIdx(-1); };
+
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 py-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-10 flex-wrap gap-4">
+    <div className="mx-auto max-w-3xl">
+      <h2 className="text-2xl">{story.title}</h2>
+      <p className="mb-6 text-muted">Press play and follow the highlighted word. {story.trains}.</p>
+
+      <div className="mb-6 flex flex-wrap items-end gap-4">
         <div>
-          <div className="flex items-center gap-4 mb-2">
-            <h3 className="text-3xl font-medium text-moss">{story.title}</h3>
-            <select 
-              value={selectedStoryId} 
-              onChange={(e) => { onSelectStory(e.target.value); setIsPlaying(false); setCurrentWordIdx(-1); }}
-              className="bg-moss/5 border border-moss/10 rounded-xl px-3 py-1.5 text-sm font-medium text-moss focus:outline-none focus:ring-2 focus:ring-moss/20"
-            >
-              {STORIES.map(s => (
-                <option key={s.id} value={s.id}>{s.title}</option>
-              ))}
-            </select>
-          </div>
-          <p className="text-text-muted text-sm italic">Press play to start!</p>
+          <label htmlFor="story-select" className="mb-1 block text-sm font-bold text-muted">Story</label>
+          <select
+            id="story-select"
+            value={selectedStoryId}
+            onChange={(e) => { onSelectStory(e.target.value); reset(); }}
+            className="rounded-xl border border-line bg-paper px-3 py-2.5"
+          >
+            {STORIES.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+          </select>
         </div>
-        <div className="flex items-center gap-4 bg-moss/5 p-2 rounded-2xl border border-moss/10">
-          <div className="flex flex-col items-end px-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-moss/40">Speed</span>
-            <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
-              className="bg-transparent text-xs font-bold text-moss focus:outline-none">
-              <option value={600}>Slow</option>
-              <option value={400}>Normal</option>
-              <option value={250}>Fast</option>
-            </select>
-          </div>
-          <button onClick={() => { if (currentWordIdx === -1) setCurrentWordIdx(0); setIsPlaying(!isPlaying); }}
-            className={`w-14 h-14 rounded-xl flex items-center justify-center transition-all ${isPlaying ? 'bg-clay text-white shadow-lg' : 'bg-moss text-white hover:scale-105'}`}>
-            <span className="iconify text-2xl" data-icon={isPlaying ? 'solar:pause-bold' : 'solar:play-bold'} />
-          </button>
+        <div>
+          <label htmlFor="speed-select" className="mb-1 block text-sm font-bold text-muted">Speed</label>
+          <select
+            id="speed-select"
+            value={speed}
+            onChange={(e) => setSpeed(Number(e.target.value))}
+            className="rounded-xl border border-line bg-paper px-3 py-2.5"
+          >
+            <option value={600}>Slow</option>
+            <option value={400}>Normal</option>
+            <option value={250}>Fast</option>
+          </select>
         </div>
-      </div>
-
-      <div className="bg-blue-50/30 p-12 rounded-[3.5rem] border border-blue-100 shadow-inner mb-8 leading-[2.5] min-h-[300px]">
-        <div className="flex flex-wrap gap-x-2 gap-y-1">
-          {words.map((word, idx) => (
-            <span
-              key={idx}
-              style={{
-                display: 'inline-block',
-                scale: currentWordIdx === idx ? '1.2' : '1',
-                color: currentWordIdx === idx ? '#C66B44' : '#2E4036',
-                backgroundColor: currentWordIdx === idx ? 'rgba(198,107,68,0.1)' : 'transparent',
-                transition: 'all 0.15s ease',
-              }}
-              className="text-2xl font-medium px-2 py-1 rounded-lg cursor-pointer hover:bg-moss/5"
-            >
-              {word}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex justify-end">
-        <button onClick={() => { setIsPlaying(false); setCurrentWordIdx(-1); }}
-          className="text-xs font-bold uppercase tracking-widest text-clay hover:underline">
-          Reset Story
+        <button
+          type="button"
+          onClick={() => { if (currentWordIdx === -1) setCurrentWordIdx(0); setIsPlaying(!isPlaying); }}
+          className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 font-bold text-white hover:bg-primary/90"
+        >
+          {isPlaying ? <Pause className="h-5 w-5" aria-hidden="true" /> : <Play className="h-5 w-5" aria-hidden="true" />}
+          {isPlaying ? 'Pause' : currentWordIdx > 0 ? 'Resume' : 'Play'}
+        </button>
+        <button
+          type="button"
+          onClick={reset}
+          className="inline-flex items-center gap-2 rounded-xl border border-line px-4 py-2.5 font-bold hover:bg-ink/5"
+        >
+          <RotateCcw className="h-4 w-4" aria-hidden="true" /> Start over
         </button>
       </div>
+
+      <p className="min-h-[220px] rounded-2xl bg-paper p-6 text-2xl sm:p-10" style={{ lineHeight: 2.1 }}>
+        {words.map((word, idx) => (
+          <span key={idx}>
+            <span
+              className={`rounded-md px-1 ${
+                currentWordIdx === idx ? 'bg-accent/20 text-accent underline decoration-2 underline-offset-8' : ''
+              }`}
+            >
+              {word}
+            </span>{' '}
+          </span>
+        ))}
+      </p>
     </div>
   );
 }
 
-function PhonicsLabSection({ userId }: { userId: string }) {
+function PhonicsLabSection({ userId: _userId }: { userId: string }) {
   const [letterIdx, setLetterIdx] = useState(0);
   const [flashcard, setFlashcard] = useState<any>(null);
+  const [failed, setFailed] = useState('');
   const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
   const fetchFlashcard = useCallback(async (idx: number) => {
+    setFailed('');
+    setFlashcard(null);
     try {
       const res = await getFlashcard(LETTERS[idx]);
       setFlashcard(res?.data || res);
-    } catch (e) { console.error(e); }
+    } catch (err) {
+      setFailed(friendlyError(err, "This letter card couldn't be loaded."));
+    }
   }, []);
 
   useEffect(() => { fetchFlashcard(letterIdx); }, [letterIdx, fetchFlashcard]);
 
+  const letter = flashcard?.letter || LETTERS[letterIdx];
+
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 py-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-        <div>
-          <h3 className="text-3xl font-medium text-moss mb-6">Phonics Lab</h3>
-          <p className="text-text-muted mb-10 leading-relaxed">Explore letters and their sounds with visual and auditory feedback.</p>
-          <div className="space-y-6">
-            <h4 className="text-xs font-bold uppercase tracking-widest text-moss/40">Alphabet Explorer</h4>
-            <div className="grid grid-cols-6 gap-2">
-              {LETTERS.map((l, idx) => (
-                <button key={l} onClick={() => setLetterIdx(idx)}
-                  className={`w-full aspect-square rounded-xl flex items-center justify-center font-bold text-lg transition-all border ${
-                    letterIdx === idx ? 'bg-green-600 border-green-600 text-white shadow-md' : 'bg-white border-moss/10 text-moss/60 hover:border-moss/30'
-                  }`}>
-                  {l}
-                </button>
-              ))}
+    <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
+      <div>
+        <h2 className="text-2xl">Phonics lab</h2>
+        <p className="mb-6 text-muted">Pick a letter to hear its sound and see example words.</p>
+        <div className="grid grid-cols-6 gap-2 sm:grid-cols-7" role="group" aria-label="Letters">
+          {LETTERS.map((l, idx) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLetterIdx(idx)}
+              aria-pressed={letterIdx === idx}
+              aria-label={`Letter ${l}`}
+              className={`flex aspect-square items-center justify-center rounded-xl border text-lg font-bold ${
+                letterIdx === idx ? 'border-primary bg-primary text-white' : 'border-line bg-paper hover:border-primary/50'
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl bg-paper p-6 sm:p-10" aria-live="polite">
+        {flashcard ? (
+          <div className="w-full space-y-6 text-center">
+            <div className="flex items-center justify-center gap-4">
+              <span className="font-display text-8xl font-bold text-primary">{letter}</span>
+              <AudioButton text={letter} className="h-12 w-12" />
+            </div>
+            <div className="space-y-4 rounded-2xl border border-line bg-surface p-6">
+              <div className="flex items-center justify-center gap-3">
+                <span className="text-2xl font-bold">{flashcard.sound}</span>
+                <AudioButton text={flashcard.sound} />
+              </div>
+              {flashcard.mnemonic && <p className="text-muted">{flashcard.mnemonic}</p>}
+              <ul className="flex flex-wrap justify-center gap-2 pt-2">
+                {(flashcard.examples || []).map((word: string) => (
+                  <li key={word} className="flex items-center gap-1 rounded-xl bg-primary/10 py-1 pl-4 pr-1 font-bold text-primary">
+                    {word}
+                    <AudioButton text={word} />
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
-        </div>
-
-        <div className="bg-green-50/50 rounded-[3rem] p-10 border border-green-100 flex flex-col items-center justify-center min-h-[400px]">
-          {flashcard ? (
-            <div className="text-center space-y-8 w-full">
-              <div className="relative inline-block">
-                <span className="text-9xl font-bold text-green-700 block">{flashcard.letter || LETTERS[letterIdx]}</span>
-                <div className="absolute -top-4 -right-8">
-                  <AudioButton text={flashcard.letter || LETTERS[letterIdx]} className="bg-white text-green-600 w-12 h-12 shadow-sm" />
-                </div>
-              </div>
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-green-100 w-full space-y-4">
-                <div className="flex items-center justify-center gap-4">
-                  <span className="text-3xl font-medium text-moss">{flashcard.sound}</span>
-                  <AudioButton text={flashcard.sound} className="bg-green-50 text-green-600" />
-                </div>
-                <p className="text-text-muted italic">"{flashcard.mnemonic}"</p>
-                <div className="pt-4 flex flex-wrap justify-center gap-3">
-                  {(flashcard.examples || []).map((word: string) => (
-                    <div key={word} className="px-4 py-2 bg-green-50 rounded-xl text-green-700 font-medium flex items-center gap-2">
-                      {word}
-                      <AudioButton text={word} className="w-6 h-6 bg-white text-green-600 scale-75" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="animate-pulse flex flex-col items-center">
-              <div className="w-24 h-24 bg-green-100 rounded-full mb-4" />
-              <div className="w-48 h-4 bg-green-100 rounded" />
-            </div>
-          )}
-        </div>
+        ) : failed ? (
+          <div className="text-center">
+            <span className="font-display text-8xl font-bold text-primary/40">{LETTERS[letterIdx]}</span>
+            <p className="mt-4 text-muted">{failed}</p>
+            <button
+              type="button"
+              onClick={() => fetchFlashcard(letterIdx)}
+              className="mt-4 rounded-xl border border-line bg-surface px-4 py-2 font-bold hover:bg-ink/5"
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center" role="status" aria-label="Loading letter card">
+            <div className="mb-4 h-24 w-24 animate-pulse rounded-full bg-ink/10" />
+            <div className="h-4 w-48 animate-pulse rounded bg-ink/10" />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-
-
-function StoryModeSection({ userId, selectedStoryId, onSelectStory }: { userId: string, selectedStoryId: string, onSelectStory: (id: string) => void }) {
-  const getTagColor = (type: string) => {
-    switch (type) {
-      case 'red': return 'bg-[#f4ebe6] text-[#b4412f]';
-      case 'green': return 'bg-[#e0f1e8] text-[#1e6144]';
-      case 'pink': return 'bg-[#f8e5ee] text-[#8e295e]';
-      case 'blue': return 'bg-[#e5eff8] text-[#295e8e]';
-      case 'purple': return 'bg-[#eae4f9] text-[#4b3096]';
-      case 'orange': return 'bg-[#faebd7] text-[#9b5110]';
-      case 'greenish': return 'bg-[#e5f8e5] text-[#298e29]';
-      case 'white': default: return 'bg-[#f4f4f4] text-[#444]';
-    }
-  };
-
+function StoryModeSection({ selectedStoryId, onSelectStory }: { userId: string, selectedStoryId: string, onSelectStory: (id: string) => void }) {
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 py-12 text-center">
-      <div className="w-20 h-20 rounded-full bg-moss/5 text-moss flex items-center justify-center mx-auto mb-8">
-        <span className="iconify text-4xl" data-icon="solar:book-bold-duotone" />
-      </div>
-      <h3 className="text-3xl font-medium text-moss mb-4">Adaptive Stories</h3>
-      <p className="text-text-muted max-w-xl mx-auto mb-10">Stories that adjust to your reading level, providing just the right amount of challenge.</p>
+    <div>
+      <h2 className="text-2xl">Stories</h2>
+      <p className="mb-6 max-w-2xl text-muted">
+        Twenty short stories, each written to practise one skill. Pick one to open it in Read along.
+      </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-        {STORIES.map((story, index) => (
-          <div 
-            key={story.id}
-            onClick={() => onSelectStory(story.id)}
-            className="p-6 bg-white border border-moss/10 rounded-2xl relative overflow-hidden group hover:scale-[1.01] hover:bg-moss/5 transition-all cursor-pointer shadow-sm shadow-moss/5"
-          >
-            <div className="flex justify-between items-start mb-4">
-              <h4 className="text-xl font-bold text-moss leading-tight pr-8 tracking-tight">{story.title}</h4>
-              <span className="text-moss/40 text-sm font-semibold">#{index + 1}</span>
-            </div>
-            
-            <div className="flex flex-wrap gap-2 mb-3">
-              {story.tags.map(tag => (
-                <span key={tag.label} className={`text-[10px] font-bold px-2.5 py-1 rounded-full tracking-wide ${getTagColor(tag.type)}`}>
-                  {tag.label}
-                </span>
-              ))}
-            </div>
-            <p className="text-xs font-medium text-moss/60 mb-3">{story.trains}</p>
-            <p className="text-sm text-text-muted leading-relaxed max-w-sm" style={{ letterSpacing: '0.01em' }}>
-              {story.text}
-            </p>
-          </div>
+      <ul className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {STORIES.map((story) => (
+          <li key={story.id}>
+            <button
+              type="button"
+              onClick={() => onSelectStory(story.id)}
+              aria-current={story.id === selectedStoryId ? 'true' : undefined}
+              className="h-full w-full rounded-2xl border border-line bg-paper p-5 text-left hover:border-primary/60 hover:bg-primary/5"
+            >
+              <span className="block font-display text-lg font-bold">{story.title}</span>
+              <span className="mt-2 flex flex-wrap gap-2">
+                {story.tags.map(tag => (
+                  <span key={tag.label} className="rounded-full bg-primary/10 px-2.5 py-0.5 text-sm font-bold text-primary">
+                    {tag.label}
+                  </span>
+                ))}
+              </span>
+              <span className="mt-3 line-clamp-2 block text-muted">{story.text}</span>
+            </button>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

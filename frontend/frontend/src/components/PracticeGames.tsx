@@ -1,19 +1,45 @@
 import React, { useState, useEffect } from 'react';
+import { ArrowRight, Volume2 } from 'lucide-react';
 
-// Using browser speech synthesis for robustness and speed
-const speak = (text) => {
-  if (window.speechSynthesis) {
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.85; // slightly slower for dictation
-    window.speechSynthesis.speak(u);
-  }
+// Browser speech synthesis: instant, works offline and needs no API key.
+const speak = (text?: string) => {
+  if (!text || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.85;
+  window.speechSynthesis.speak(u);
 };
+
+const choiceBtn =
+  'rounded-2xl border-2 border-line bg-paper px-6 py-3 text-xl font-bold hover:border-primary hover:bg-primary/5';
+const primaryBtn = 'rounded-xl bg-primary px-6 py-3 font-bold text-white hover:bg-primary/90 disabled:opacity-50';
+const textInput =
+  'w-full rounded-xl border-2 border-line bg-paper px-4 py-3 text-center text-xl tracking-wide focus:border-primary sm:w-56';
+
+function GameShell({ title, instructions, children }: { title: string; instructions: string; children: React.ReactNode }) {
+  return (
+    <section
+      aria-labelledby="game-title"
+      className="flex min-h-[320px] flex-col items-center justify-center rounded-3xl border border-line bg-surface p-6 text-center shadow-card sm:p-10"
+    >
+      <h2 id="game-title" className="text-2xl">{title}</h2>
+      <p className="mb-8 mt-2 max-w-md text-lg text-muted">{instructions}</p>
+      {children}
+    </section>
+  );
+}
+
+function BigWord({ children }: { children: React.ReactNode }) {
+  return <p className="mb-8 font-display text-5xl font-bold">{children}</p>;
+}
 
 export const DictationGame = ({ data, onComplete }) => {
   const [input, setInput] = useState('');
-  
+
   useEffect(() => {
-    if (data?.word) setTimeout(() => speak(data.word), 300);
+    if (!data?.word) return;
+    const t = setTimeout(() => speak(data.word), 300);
+    return () => clearTimeout(t);
   }, [data]);
 
   const handleSubmit = (e) => {
@@ -23,120 +49,124 @@ export const DictationGame = ({ data, onComplete }) => {
   };
 
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-moss/10 shadow-sm">
-      <h3 className="text-2xl font-bold text-moss mb-4">Dictation Game</h3>
-      <button 
-        type="button" 
+    <GameShell title="Dictation" instructions="Listen to the word, then type how it is spelled.">
+      <button
+        type="button"
         onClick={() => speak(data?.word)}
-        className="w-16 h-16 rounded-full bg-clay/20 text-clay flex items-center justify-center hover:scale-110 hover:bg-clay/30 transition-all mb-6"
+        className="mb-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 font-bold text-white hover:bg-accent/90"
       >
-        <i className="not-italic flex"><span className="iconify text-3xl" data-icon="solar:volume-up-bold-duotone" /></i>
+        <Volume2 className="h-5 w-5" aria-hidden="true" /> Play the word again
       </button>
-      <p className="mb-4 font-medium text-charcoal/60">Listen carefully and spell the word.</p>
-      
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input 
+      <form onSubmit={handleSubmit} className="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
+        <label htmlFor="dictation-input" className="sr-only">Your spelling</label>
+        <input
+          id="dictation-input"
           autoFocus
-          className="border-2 border-moss/20 rounded-full px-6 py-3 text-xl focus:border-moss outline-none w-48 text-center"
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          className={textInput}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type here..."
+          placeholder="Type the word"
         />
-        <button type="submit" className="px-6 py-3 bg-moss text-white font-bold rounded-full hover:bg-moss-dark transition-colors">
-          Check
-        </button>
+        <button type="submit" className={primaryBtn}>Check</button>
       </form>
-    </div>
+    </GameShell>
   );
 };
 
 export const ErrorCorrectionGame = ({ data, onComplete }) => {
   if (!data) return null;
+  const [before, after] = data.sentence.split('____');
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-moss/10 shadow-sm">
-      <h3 className="text-2xl font-bold text-moss mb-4">Fix the Error</h3>
-      <p className="mb-8 font-medium text-2xl px-4 py-3 bg-gray-50 rounded-xl border border-gray-100">
-        {data.sentence.replace('____', `[ ${data.incorrect} ]`)}
+    <GameShell title="Fix the spelling" instructions={`Pick the correct spelling to replace "${data.incorrect}".`}>
+      <p className="mb-8 rounded-2xl bg-paper px-5 py-4 text-2xl">
+        {before}
+        <mark className="rounded bg-err/15 px-1 text-err line-through decoration-2">{data.incorrect}</mark>
+        {after}
       </p>
-      <p className="mb-4 text-sm text-charcoal/50">Select the correct spelling to replace "{data.incorrect}":</p>
-      <div className="flex gap-4 flex-wrap justify-center">
-        {data.options.map(opt => (
-          <button 
-            key={opt}
-            onClick={() => onComplete(opt === data.answer)}
-            className="px-6 py-3 bg-moss/10 text-moss font-bold rounded-full hover:bg-moss hover:text-white transition-colors"
-          >
+      <div className="flex flex-wrap justify-center gap-3">
+        {data.options.map((opt) => (
+          <button key={opt} type="button" onClick={() => onComplete(opt === data.answer)} className={choiceBtn}>
             {opt}
           </button>
         ))}
       </div>
-    </div>
+    </GameShell>
   );
 };
 
 export const WordSortingGame = ({ data, onComplete }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fails, setFails] = useState(0);
+  const [wrong, setWrong] = useState(false);
 
   if (!data) return null;
   const wordObj = data.words[currentIndex];
 
   const handleBucket = (bucketNum) => {
     if (wordObj.bucket === bucketNum) {
-      if (currentIndex === data.words.length - 1) {
-        onComplete(fails === 0);
-      } else {
-        setCurrentIndex(c => c + 1);
-      }
+      setWrong(false);
+      if (currentIndex === data.words.length - 1) onComplete(fails === 0);
+      else setCurrentIndex((c) => c + 1);
     } else {
-      setFails(f => f + 1);
-      // Give a little visual feedback, but simple enough to just retry
+      setFails((f) => f + 1);
+      setWrong(true);
     }
   };
 
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-blue-100 shadow-sm">
-      <h3 className="text-2xl font-bold text-blue-600 mb-2">Word Sorting Game</h3>
-      <p className="mb-8 text-charcoal/60">Where does this word belong?</p>
-      
-      <div className="text-5xl font-bold text-charcoal mb-10 py-4 px-12 bg-blue-50 rounded-2xl border-2 border-blue-200">
-        {wordObj?.word}
+    <GameShell title="Word sorting" instructions="Which group does this word belong to?">
+      <BigWord>{wordObj?.word}</BigWord>
+      <div className="grid w-full max-w-md grid-cols-2 gap-4">
+        {[data.bucket1, data.bucket2].map((label, i) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => handleBucket(i + 1)}
+            className="rounded-2xl border-2 border-dashed border-line bg-paper px-4 py-8 text-xl font-bold hover:border-primary hover:bg-primary/5"
+          >
+            {label}
+          </button>
+        ))}
       </div>
-
-      <div className="flex gap-6 justify-center w-full max-w-md">
-        <button onClick={() => handleBucket(1)} className="flex-1 py-8 bg-white border-2 border-dashed border-blue-300 rounded-2xl hover:bg-blue-50 transition-colors font-bold text-blue-800 flex flex-col items-center gap-2">
-           <i className="not-italic"><span className="iconify text-3xl" data-icon="solar:box-minimalistic-bold-duotone" /></i>
-           {data.bucket1}
-        </button>
-        <button onClick={() => handleBucket(2)} className="flex-1 py-8 bg-white border-2 border-dashed border-purple-300 rounded-2xl hover:bg-purple-50 transition-colors font-bold text-purple-800 flex flex-col items-center gap-2">
-           <i className="not-italic"><span className="iconify text-3xl" data-icon="solar:box-minimalistic-bold-duotone" /></i>
-           {data.bucket2}
-        </button>
-      </div>
-      <p className="mt-6 text-xs text-charcoal/40">Word {currentIndex + 1} of {data.words.length}</p>
-    </div>
+      <p className="mt-6 min-h-[1.5em] text-sm" aria-live="polite">
+        {wrong ? <span className="font-bold text-warn">Not that one. Try the other group.</span> : null}
+      </p>
+      <p className="text-sm text-muted">Word {currentIndex + 1} of {data.words.length}</p>
+    </GameShell>
   );
 };
 
 export const SyllableTappingGame = ({ data, onComplete }) => {
   if (!data) return null;
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-purple-100 shadow-sm">
-      <h3 className="text-2xl font-bold text-purple-600 mb-2">Syllable Tapping</h3>
-      <p className="mb-8 font-medium text-charcoal/60">How many syllables (beats) in this word?</p>
-      <div className="text-5xl font-bold text-charcoal mb-10 capitalize tracking-wide">{data.word}</div>
-      <div className="flex gap-4 justify-center">
-        {[1, 2, 3, 4, 5].map(num => (
-          <button 
+    <GameShell title="Syllable tapping" instructions="How many beats (syllables) does this word have?">
+      <div className="mb-8 flex items-center gap-3">
+        <p className="font-display text-5xl font-bold capitalize">{data.word}</p>
+        <button
+          type="button"
+          onClick={() => speak(data.word)}
+          aria-label={`Listen: ${data.word}`}
+          className="flex h-11 w-11 items-center justify-center rounded-full border border-line text-primary hover:bg-primary/10"
+        >
+          <Volume2 className="h-5 w-5" aria-hidden="true" />
+        </button>
+      </div>
+      <div className="flex flex-wrap justify-center gap-3" role="group" aria-label="Number of syllables">
+        {[1, 2, 3, 4, 5].map((num) => (
+          <button
             key={num}
-            onClick={() => onComplete(num === data.syllables)} 
-            className="w-16 h-16 rounded-full bg-purple-100 text-purple-700 font-bold text-2xl hover:bg-purple-600 hover:text-white transition-all shadow-sm"
+            type="button"
+            onClick={() => onComplete(num === data.syllables)}
+            className="h-16 w-16 rounded-2xl border-2 border-line bg-paper text-2xl font-bold hover:border-primary hover:bg-primary/5"
           >
             {num}
           </button>
         ))}
       </div>
-    </div>
+    </GameShell>
   );
 };
 
@@ -144,42 +174,47 @@ export const WordChainsGame = ({ data, onComplete }) => {
   const [input, setInput] = useState('');
   if (!data) return null;
 
-  // Let's ask them to fill in the second word of the chain
+  // The learner fills in the second word of the chain.
   const targetWord = data.chain[1];
+  const rest = data.chain.slice(2);
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!input.trim()) return;
     onComplete(input.trim().toLowerCase() === targetWord.toLowerCase());
   };
 
+  const Arrow = () => <ArrowRight className="h-5 w-5 shrink-0 text-muted" aria-hidden="true" />;
+  const Word = ({ w }: { w: string }) => <span className="rounded-xl bg-paper px-4 py-2 text-xl font-bold">{w}</span>;
+
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-orange-100 shadow-sm">
-      <h3 className="text-2xl font-bold text-orange-500 mb-4">Word Chains</h3>
-      <p className="mb-8 text-charcoal/60 font-medium">Change one letter at a time to complete the chain.</p>
-      
-      <div className="flex items-center gap-4 justify-center mb-8">
-        <div className="px-4 py-2 bg-gray-100 rounded-lg font-bold">{data.chain[0]}</div>
-        <i className="not-italic flex"><span className="iconify text-orange-300" data-icon="solar:arrow-right-linear" /></i>
-        <form onSubmit={handleSubmit}>
-          <input 
+    <GameShell title="Word chains" instructions="Change one letter to get from the first word to the next.">
+      <form onSubmit={handleSubmit} className="flex flex-col items-center gap-6">
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Word w={data.chain[0]} />
+          <Arrow />
+          <label htmlFor="chain-input" className="sr-only">Missing word</label>
+          <input
+            id="chain-input"
             autoFocus
-            className="px-4 py-2 bg-orange-50 border-2 border-orange-200 rounded-lg font-bold text-center w-24 outline-none focus:border-orange-500"
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="w-28 rounded-xl border-2 border-primary/50 bg-paper px-3 py-2 text-center text-xl font-bold focus:border-primary"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="???"
+            placeholder="?"
           />
-        </form>
-        <i className="not-italic flex"><span className="iconify text-orange-300" data-icon="solar:arrow-right-linear" /></i>
-        <div className="px-4 py-2 bg-gray-100 rounded-lg font-bold">{data.chain[2]}</div>
-        {(data.chain.length > 3) && (
-           <>
-            <i className="not-italic flex"><span className="iconify text-orange-300" data-icon="solar:arrow-right-linear" /></i>
-            <div className="px-4 py-2 bg-gray-100 rounded-lg font-bold">{data.chain[3]}</div>
-           </>
-        )}
-      </div>
-      <button onClick={handleSubmit} className="px-6 py-2 bg-orange-500 text-white font-bold rounded-full hover:bg-orange-600 transition-colors">Submit</button>
-    </div>
+          {rest.map((w) => (
+            <React.Fragment key={w}>
+              <Arrow />
+              <Word w={w} />
+            </React.Fragment>
+          ))}
+        </div>
+        <button type="submit" className={primaryBtn}>Check</button>
+      </form>
+    </GameShell>
   );
 };
 
@@ -190,6 +225,7 @@ export const SentenceReconstructionGame = ({ data, onComplete }) => {
   useEffect(() => {
     if (data?.words) {
       setPool([...data.words].sort(() => Math.random() - 0.5));
+      setAssembled([]);
     }
   }, [data]);
 
@@ -201,66 +237,71 @@ export const SentenceReconstructionGame = ({ data, onComplete }) => {
   };
 
   const removeWord = (word, idx) => {
-    const p = [...pool, word];
-    setPool(p);
+    setPool([...pool, word]);
     const a = [...assembled];
     a.splice(idx, 1);
     setAssembled(a);
   };
 
-  const handleCheck = () => {
-    onComplete(assembled.join(' ') === data.words.join(' '));
-  };
-
   if (!data) return null;
 
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-green-100 shadow-sm w-full">
-      <h3 className="text-2xl font-bold text-green-600 mb-4">Sentence Builder</h3>
-      <p className="mb-6 font-medium text-charcoal/60">Tap the words in the correct order to build a sentence.</p>
-      
-      <div className="min-h-[60px] w-full max-w-xl bg-green-50/50 rounded-2xl border-2 border-dashed border-green-200 p-4 flex flex-wrap gap-2 justify-center mb-6">
+    <GameShell title="Sentence builder" instructions="Tap the words in order to build the sentence. Tap a placed word to take it back.">
+      <div
+        className="mb-6 flex min-h-[72px] w-full max-w-xl flex-wrap justify-center gap-2 rounded-2xl border-2 border-dashed border-line bg-paper p-4"
+        aria-label="Your sentence"
+        aria-live="polite"
+      >
+        {assembled.length === 0 && <span className="self-center text-muted">Your sentence appears here</span>}
         {assembled.map((w, i) => (
-          <button key={i} onClick={() => removeWord(w, i)} className="px-4 py-2 bg-green-500 text-white rounded-lg shadow-sm font-bold text-lg hover:bg-red-500 transition-colors">
+          <button
+            key={`${w}-${i}`}
+            type="button"
+            onClick={() => removeWord(w, i)}
+            aria-label={`Remove ${w}`}
+            className="rounded-xl bg-primary px-4 py-2 text-lg font-bold text-white hover:bg-primary/85"
+          >
             {w}
           </button>
         ))}
       </div>
-
-      <div className="flex flex-wrap gap-2 justify-center mb-8 max-w-xl">
+      <div className="mb-8 flex max-w-xl flex-wrap justify-center gap-2" aria-label="Words to use">
         {pool.map((w, i) => (
-          <button key={i} onClick={() => selectWord(w, i)} className="px-4 py-2 bg-white border-2 border-gray-200 rounded-lg shadow-sm font-bold text-lg text-charcoal hover:border-green-400 hover:text-green-600 transition-colors">
+          <button
+            key={`${w}-${i}`}
+            type="button"
+            onClick={() => selectWord(w, i)}
+            className="rounded-xl border-2 border-line bg-paper px-4 py-2 text-lg font-bold hover:border-primary"
+          >
             {w}
           </button>
         ))}
       </div>
-
-      <button disabled={pool.length > 0} onClick={handleCheck} className="px-8 py-3 bg-green-600 text-white font-bold rounded-full disabled:opacity-50 hover:bg-green-700 transition-colors">
-        Check Sentence
+      <button
+        type="button"
+        disabled={pool.length > 0}
+        onClick={() => onComplete(assembled.join(' ') === data.words.join(' '))}
+        className={primaryBtn}
+      >
+        Check sentence
       </button>
-    </div>
+    </GameShell>
   );
 };
 
 export const RhymeFinderGame = ({ data, onComplete }) => {
   if (!data) return null;
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-pink-100 shadow-sm">
-      <h3 className="text-2xl font-bold text-pink-600 mb-2">Rhyme Finder</h3>
-      <p className="mb-8 font-medium text-charcoal/60">Find a word that rhymes with:</p>
-      <div className="text-5xl font-bold text-charcoal mb-8">{data.target}</div>
-      <div className="flex flex-wrap gap-4 justify-center max-w-md">
+    <GameShell title="Rhyme finder" instructions="Pick a word that rhymes with:">
+      <BigWord>{data.target}</BigWord>
+      <div className="flex max-w-md flex-wrap justify-center gap-3">
         {data.options.map((opt) => (
-          <button 
-            key={opt}
-            onClick={() => onComplete(data.answers.includes(opt))} 
-            className="px-6 py-3 bg-pink-50 border-2 border-pink-200 text-pink-700 font-bold rounded-xl hover:bg-pink-500 hover:text-white transition-all hover:-translate-y-1"
-          >
+          <button key={opt} type="button" onClick={() => onComplete(data.answers.includes(opt))} className={choiceBtn}>
             {opt}
           </button>
         ))}
       </div>
-    </div>
+    </GameShell>
   );
 };
 
@@ -268,14 +309,16 @@ export const FlashcardsGame = ({ data, onComplete }) => {
   const [showWord, setShowWord] = useState(true);
   const [input, setInput] = useState('');
 
+  const flash = () => {
+    setShowWord(true);
+    const t = setTimeout(() => setShowWord(false), 800);
+    return () => clearTimeout(t);
+  };
+
   useEffect(() => {
     if (!data) return;
-    setShowWord(true);
     setInput('');
-    const t = setTimeout(() => {
-      setShowWord(false);
-    }, 800); // Give them 0.8s
-    return () => clearTimeout(t);
+    return flash();
   }, [data]);
 
   const handleSubmit = (e) => {
@@ -285,57 +328,57 @@ export const FlashcardsGame = ({ data, onComplete }) => {
   };
 
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-yellow-100 shadow-sm">
-      <h3 className="text-2xl font-bold text-yellow-600 mb-2">Speed Flashcards</h3>
-      <p className="mb-8 font-medium text-charcoal/60">{showWord ? 'Look quickly!' : 'Type what you saw.'}</p>
-      
-      {showWord ? (
-        <div className="text-6xl font-bold text-charcoal mb-8 h-20 animate-in zoom-in spin-in-2">{data?.word}</div>
-      ) : (
-        <div className="h-20 mb-8 flex items-center justify-center">
-          <form onSubmit={handleSubmit} className="flex gap-2">
-            <input 
+    <GameShell title="Speed flashcards" instructions={showWord ? 'Look closely…' : 'Type the word you just saw.'}>
+      <div className="flex min-h-[96px] items-center justify-center">
+        {showWord ? (
+          <p className="font-display text-6xl font-bold">{data?.word}</p>
+        ) : (
+          <form onSubmit={handleSubmit} className="flex w-full flex-col items-center gap-3 sm:flex-row">
+            <label htmlFor="flash-input" className="sr-only">The word you saw</label>
+            <input
+              id="flash-input"
               autoFocus
-              className="border-2 border-yellow-300 rounded-full px-6 py-3 text-xl focus:border-yellow-500 outline-none w-48 text-center"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              className={textInput}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="???"
             />
-            <button type="submit" className="px-6 py-3 bg-yellow-500 text-white font-bold rounded-full hover:bg-yellow-600 transition-colors">
-              Check
-            </button>
+            <button type="submit" className={primaryBtn}>Check</button>
           </form>
-        </div>
+        )}
+      </div>
+      {!showWord && (
+        <button type="button" onClick={flash} className="mt-6 text-sm font-bold text-muted underline underline-offset-4 hover:text-ink">
+          Show it again
+        </button>
       )}
-    </div>
+    </GameShell>
   );
 };
 
 export const HomophonesGame = ({ data, onComplete }) => {
   if (!data) return null;
   return (
-    <div className="p-8 text-center bg-white rounded-[2rem] min-h-[300px] flex flex-col items-center justify-center border border-teal-100 shadow-sm">
-      <h3 className="text-2xl font-bold text-teal-600 mb-4">Homophone Spotter</h3>
-      <p className="mb-8 font-medium text-2xl text-charcoal max-w-xl leading-relaxed">
+    <GameShell title="Homophones" instructions="Which word fits the gap?">
+      <p className="mb-8 max-w-xl text-2xl">
         {data.sentence.split('____').map((part, i, arr) => (
           <React.Fragment key={`${part}-${i}`}>
-            <span>{part}</span>
-            {i < arr.length - 1 && <span className="inline-block border-b-4 border-teal-300 w-16 mx-2" />}
+            {part}
+            {i < arr.length - 1 && (
+              <span className="mx-2 inline-block w-16 border-b-4 border-primary/50 align-baseline" aria-label="gap" />
+            )}
           </React.Fragment>
         ))}
       </p>
-      
-      <div className="flex gap-4 justify-center">
-        {data.options.map(opt => (
-          <button 
-            key={opt}
-            onClick={() => onComplete(opt === data.answer)} 
-            className="px-8 py-4 bg-teal-50 border-2 border-teal-200 text-teal-700 font-bold rounded-2xl text-xl hover:bg-teal-500 hover:text-white transition-all hover:scale-105"
-          >
-            <span>{opt}</span>
+      <div className="flex flex-wrap justify-center gap-3">
+        {data.options.map((opt) => (
+          <button key={opt} type="button" onClick={() => onComplete(opt === data.answer)} className={choiceBtn}>
+            {opt}
           </button>
         ))}
       </div>
-    </div>
+    </GameShell>
   );
 };

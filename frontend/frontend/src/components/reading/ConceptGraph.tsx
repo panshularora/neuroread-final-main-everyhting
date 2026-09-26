@@ -60,7 +60,7 @@ export default function ConceptGraph({ graph, height = 260 }) {
 
       {selected ? (
         <div className="mt-3 rounded-2xl bg-moss/[0.03] border border-moss/10 p-4">
-          <p className="text-[10px] font-medium text-charcoal/40 uppercase tracking-wider mb-1">Selected concept</p>
+          <p className="text-xs font-medium text-charcoal/40 mb-1">Selected concept</p>
           <p className="text-sm text-charcoal/80">{selected.id}</p>
         </div>
       ) : null}

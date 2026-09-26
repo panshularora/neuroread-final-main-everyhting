@@ -1,39 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { simplifyText, ensureUserId, setUserId } from '../services/api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MotionConfig } from 'framer-motion';
+import { simplifyText, ensureUserId, setUserId, friendlyError } from '../services/api';
+import { useHashRoute } from '../lib/useHashRoute';
+import type { Route } from '../lib/useHashRoute';
 
 declare global {
   interface Window {
-    gsap: any;
-    ScrollTrigger: any;
     Iconify: any;
   }
 }
 import AssistiveMode from './AssistiveMode';
+import ApiNotice from './ApiNotice';
 import Hero from './Hero';
+import HowItWorks from './HowItWorks';
 import History from './History';
 import LearningMode from './LearningMode';
 import PracticeMode from './PracticeMode';
 import Navbar from './Navbar';
 import SimplifierModal from './SimplifierModal';
 import Dashboard from '../pages/Dashboard';
-import BookBackground from './BookBackground';
 import AccessibilityMenu from './AccessibilityMenu';
 import Onboarding from './Onboarding';
 import ColorOverlay from './accessibility/ColorOverlay';
 import ReadingRuler from './accessibility/ReadingRuler';
 import '../styles/accessibility.css';
 
-function safeGsap() {
-  const gsap = window.gsap;
-  const ScrollTrigger = window.ScrollTrigger;
-  if (!gsap || !ScrollTrigger) return null;
-  try {
-    gsap.registerPlugin(ScrollTrigger);
-    return { gsap, ScrollTrigger };
-  } catch {
-    return null;
-  }
-}
+const TITLES: Record<Route, string> = {
+  home: 'NeuroRead · Reading support for dyslexic readers',
+  read: 'Simplify a text · NeuroRead',
+  learn: 'Learn · NeuroRead',
+  practice: 'Practice · NeuroRead',
+  progress: 'Progress · NeuroRead',
+};
 
 function nextDifficulty(current: string) {
   const v = (current || '').toLowerCase();
@@ -43,8 +41,9 @@ function nextDifficulty(current: string) {
 }
 
 export default function App() {
-  const [mode, setMode] = useState('assistive');
-  const [simplifierOpen, setSimplifierOpen] = useState(false);
+  const { route, navigate } = useHashRoute();
+  const simplifierOpen = route === 'read';
+  const [settingsOpen, setSettingsOpen] = useState(false);
   
   // Onboarding gate
   const [showOnboarding, setShowOnboarding] = useState(
@@ -66,8 +65,6 @@ export default function App() {
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
   const [historySessions, setHistorySessions] = useState<any[]>([]);
 
-  const contentRef = useRef(null);
-
   useEffect(() => {
     setHistorySessions([]);
   }, []);
@@ -76,79 +73,37 @@ export default function App() {
     setUserId(userId);
   }, [userId]);
 
+  const mainRef = useRef<HTMLElement>(null);
+  const firstRender = useRef(true);
+
+  // On a route change: new title, back to the top, and focus the main region
+  // so screen readers announce the new page.
   useEffect(() => {
-    const gs = safeGsap();
-    if (!gs) return;
-    const { gsap } = gs;
-
-    const ctx = gsap.context(() => {
-      gsap.fromTo('.hero-anim', { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 1.2, stagger: 0.15, ease: 'power3.out', delay: 0.2 });
-      gsap.fromTo(
-        '.impact-card',
-        { y: 50, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.8, stagger: 0.15, ease: 'power3.out', scrollTrigger: { trigger: '#impact', start: 'top 75%' } }
-      );
-    });
-
-    return () => ctx.revert();
-  }, []);
+    document.title = TITLES[route];
+    if (route === 'read') return;
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    window.scrollTo({ top: 0 });
+    mainRef.current?.focus({ preventScroll: true });
+  }, [route]);
 
   useEffect(() => {
     window.Iconify?.scan?.();
-  }, [mode, simplifierOpen, historySessions.length]);
-
-  const impactSection = useMemo(() => {
-    return (
-      <section id="impact" className="py-24 relative z-20 rounded-t-[3rem] -mt-10 overflow-hidden bg-white/20 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="mb-20">
-            <span className="font-mono text-xs text-moss uppercase tracking-wider block mb-3">Our Vision</span>
-            <h2 className="md:text-5xl text-charcoal text-4xl font-medium tracking-tight max-w-2xl">
-              Calm, Structured, and Personalized Learning
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="impact-card border border-moss/10 rounded-[2.5rem] p-8 md:p-10 bg-white shadow-sm transition-all hover:-translate-y-2 hover:shadow-md">
-              <h3 className="font-medium text-2xl tracking-tight text-charcoal mb-4">Focus Mode</h3>
-              <p className="text-charcoal/70 text-base leading-relaxed">
-                Clean interfaces designed to reduce cognitive load and prioritize reading comprehension.
-              </p>
-            </div>
-            <div className="impact-card border border-moss/10 rounded-[2.5rem] p-8 md:p-10 bg-white shadow-sm transition-all hover:-translate-y-2 hover:shadow-md">
-              <h3 className="font-medium text-2xl tracking-tight text-charcoal mb-4">AI Tutor</h3>
-              <p className="text-charcoal/70 text-base leading-relaxed">
-                An emotionally supportive reading companion that simplifies logic on the fly.
-              </p>
-            </div>
-            <div className="impact-card border border-moss/10 rounded-[2.5rem] p-8 md:p-10 bg-white shadow-sm transition-all hover:-translate-y-2 hover:shadow-md">
-              <h3 className="font-medium text-2xl tracking-tight text-charcoal mb-4">Progress</h3>
-              <p className="text-charcoal/70 text-base leading-relaxed">
-                Track phonics and memory milestones with actionable daily recommendations.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  }, []);
-
-  const setModeSafe = useCallback((nextMode: string) => {
-    setMode(nextMode);
-    if (nextMode !== 'assistive') {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, []);
+  }, [route, historySessions.length]);
 
   const closeSimplifier = useCallback(() => {
-    setSimplifierOpen(false);
+    navigate('home');
     setAudioOn(false);
-  }, []);
+  }, [navigate]);
 
   const toggleDyslexia = useCallback(() => setDyslexiaOn((v) => !v), []);
   const toggleAudio = useCallback(() => setAudioOn((v) => !v), []);
 
-  const runSimplifier = useCallback(async () => {
-    const text = inputText.trim();
+  // `override` lets the demo pass its text directly instead of waiting for state.
+  const runSimplifier = useCallback(async (override?: unknown) => {
+    const text = (typeof override === 'string' ? override : inputText).trim();
     if (!text) {
       setError('Please enter some text to simplify.');
       return;
@@ -161,6 +116,7 @@ export default function App() {
 
     try {
       const data = await simplifyText(text, profile, userId);
+      if (data?.status === 'error') throw new Error(data.message || 'simplify failed');
       const adapted = {
         simplifiedText: data.simplified_text ?? '',
         originalScore: Math.round(data.original_analysis?.cognitive_load_score ?? 0),
@@ -194,25 +150,31 @@ export default function App() {
         return [live, ...prev];
       });
     } catch (e: any) {
-      setError(e?.message || 'Error reaching the API.');
+      setError(friendlyError(e, "That text couldn't be simplified. Try a shorter passage or try again in a moment."));
     } finally {
       setLoading(false);
     }
   }, [inputText, profile, userId]);
 
   return (
-    <div className="bg-cream text-charcoal font-sans antialiased overflow-x-hidden selection:bg-moss selection:text-cream min-h-screen">
-      {/* First-time onboarding */}
-      {showOnboarding && (
-        <Onboarding onComplete={() => setShowOnboarding(false)} />
-      )}
-      <ColorOverlay />
-      <ReadingRuler />
-      <div className="noise-overlay" />
-      <BookBackground />
-      <AccessibilityMenu />
+    <MotionConfig reducedMotion="user">
+      <div className="min-h-screen bg-paper text-ink">
+        <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}>
+          Skip to content
+        </a>
 
-      <div className="relative z-10">
+        {showOnboarding && (
+          <Onboarding
+            onComplete={(_age, startAt) => {
+              setShowOnboarding(false);
+              if (startAt) navigate(startAt);
+            }}
+          />
+        )}
+        <ColorOverlay />
+        <ReadingRuler />
+        <AccessibilityMenu open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
         <SimplifierModal
           open={simplifierOpen}
           onClose={closeSimplifier}
@@ -233,41 +195,46 @@ export default function App() {
           onRunSimplifier={runSimplifier}
         />
 
-        <Navbar
-          mode={mode}
-          onModeChange={setModeSafe}
-          onNavigate={(target) => {
-             // Navigation is handled by mode state now
-          }}
-        />
+        <Navbar route={route} onOpenSettings={() => setSettingsOpen(true)} />
 
-        <main 
-          ref={contentRef} 
-          className={`transition-all duration-500 ${mode !== 'assistive' ? 'pt-32' : ''}`}
-        >
-          {mode === 'assistive' && (
+        <main id="main" ref={mainRef} tabIndex={-1} className="pb-24 outline-none md:pb-0">
+          <ApiNotice wrapperClassName="mx-auto max-w-6xl px-4 pt-6 sm:px-6" />
+          {(route === 'home' || route === 'read') && (
             <>
               <Hero />
-              {impactSection}
-              <section id="assistive-mode-section" className="py-24 bg-white/40">
+              <section id="assistive-mode-section" className="py-16">
                 <AssistiveMode
                   active={true}
-                  onOpenSimplifier={() => setSimplifierOpen(true)}
+                  onOpenSimplifier={() => navigate('read')}
                   onRunSimplifier={runSimplifier}
                   onSetInputText={setInputText}
+                  onNavigate={navigate}
                 />
               </section>
+              <HowItWorks />
               <History userId={userId} />
             </>
           )}
 
-          {mode === 'learning' && <LearningMode active={true} />}
-          {mode === 'practice' && <PracticeMode active={true} />}
-          {mode === 'dashboard' && <Dashboard onNavigate={setModeSafe} />}
+          {route === 'learn' && <LearningMode active={true} />}
+          {route === 'practice' && <PracticeMode active={true} />}
+          {route === 'progress' && <Dashboard onNavigate={navigate} />}
         </main>
+
+        <footer className="border-t border-line pb-24 md:pb-0">
+          <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-8 text-sm text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <p>NeuroRead, built by Panshul Arora and Naman Rai.</p>
+            <a
+              href="https://github.com/panshularora/NEUROREAD"
+              className="font-bold text-primary underline underline-offset-4"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Source on GitHub
+            </a>
+          </div>
+        </footer>
       </div>
-    </div>
+    </MotionConfig>
   );
 }
-
-

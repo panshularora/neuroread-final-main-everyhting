@@ -23,10 +23,10 @@ export default function HeatmapView({ sentences, activeIndex, onSentenceClick })
             title={`Score: ${s.score}`}
           >
             <div className="flex items-center justify-between gap-3 mb-1">
-              <span className="text-[10px] font-medium text-charcoal/50 uppercase tracking-wider">
+              <span className="text-xs font-medium text-charcoal/50">
                 {s.difficulty} • {s.score}/100
               </span>
-              <span className="text-[10px] text-charcoal/40">
+              <span className="text-xs text-charcoal/40">
                 {idx + 1}/{sentences.length}
               </span>
             </div>

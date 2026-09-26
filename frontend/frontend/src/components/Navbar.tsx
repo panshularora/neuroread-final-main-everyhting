@@ -1,108 +1,102 @@
-import { useEffect, useMemo, useState } from 'react';
+import { BookOpenText, ChartLine, GraduationCap, Puzzle, SlidersHorizontal } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import Logo from './Logo';
+import { hrefFor } from '../lib/useHashRoute';
+import type { Route } from '../lib/useHashRoute';
 
-export default function Navbar({ mode, onModeChange, onNavigate }: { mode: string, onModeChange: (m: string) => void, onNavigate?: (target: string) => void }) {
-  const [scrolled, setScrolled] = useState(false);
+type NavItem = { route: Route; label: string; icon: LucideIcon };
 
+export const NAV_ITEMS: NavItem[] = [
+  { route: 'home', label: 'Read', icon: BookOpenText },
+  { route: 'learn', label: 'Learn', icon: GraduationCap },
+  { route: 'practice', label: 'Practice', icon: Puzzle },
+  { route: 'progress', label: 'Progress', icon: ChartLine },
+];
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 50);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-
-
-  const isTransparent = !scrolled && mode === 'assistive';
-
-  const className = useMemo(() => {
-    const base = 'fixed top-4 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 rounded-full px-8 py-3.5 flex items-center justify-between w-[95%] max-w-6xl';
-    if (isTransparent) return `${base} bg-transparent text-white`;
-    return `${base} bg-white/95 backdrop-blur-[16px] text-moss border border-black/10 shadow-md translate-y-2`;
-  }, [isTransparent]);
-
-  const getLinkClass = (linkMode: string) => {
-    const base = 'transition-all duration-300';
-    const hover = isTransparent ? 'hover:text-white' : 'hover:text-moss';
-    const active = mode === linkMode ? (isTransparent ? 'text-white' : 'text-moss') : '';
-    return `${base} ${hover} ${active}`;
-  };
-
-  return (
-    <nav id="navbar" className={className}>
-      <div className="flex items-center">
-        <a 
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            onModeChange('assistive');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          className={`flex items-center gap-3 uppercase text-sm font-medium tracking-[0.5em] hover:opacity-80 transition-opacity cursor-pointer flex-shrink-0 ${isTransparent ? "text-white" : "text-moss"}`}
-        >
-          <img src="/neuroread_logo.png" alt="Neuroread Logo" className={`h-8 w-auto object-contain transition-all duration-500 ${isTransparent ? "brightness-0 invert" : ""}`} />
-          <span className="hidden sm:inline">N e u r o r e a d</span>
-        </a>
-      </div>
-
-      <div className="flex items-center gap-6">
-
-
-        <div className={`hidden md:flex items-center gap-8 font-medium text-xs tracking-[0.2em] uppercase transition-colors duration-500 ${isTransparent ? "text-white/80" : "text-moss/60"}`}>
-          <a
-            href="#assistive-mode-section"
-            onClick={(e) => {
-              e.preventDefault();
-              onModeChange('assistive');
-              setTimeout(() => {
-                const el = document.getElementById('assistive-mode-section');
-                if (el) {
-                  const y = el.getBoundingClientRect().top + window.scrollY - 140; // Offset for fixed navbar + padding
-                  window.scrollTo({ top: y, behavior: 'smooth' });
-                }
-              }, 100);
-              onNavigate?.('modes');
-            }}
-            className={getLinkClass('assistive')}
-          >
-            ASSIST
-          </a>
-          <a
-            href="#modes"
-            onClick={(e) => {
-              e.preventDefault();
-              onModeChange('learning');
-              onNavigate?.('modes');
-            }}
-            className={getLinkClass('learning')}
-          >
-            LEARNING
-          </a>
-          <a
-            href="#modes"
-            onClick={(e) => {
-              e.preventDefault();
-              onModeChange('practice');
-              onNavigate?.('modes');
-            }}
-            className={getLinkClass('practice')}
-          >
-            PRACTICE
-          </a>
-          <a
-            href="#dashboard"
-            onClick={(e) => {
-              e.preventDefault();
-              onModeChange('dashboard');
-              onNavigate?.('dashboard');
-            }}
-            className={getLinkClass('dashboard')}
-          >
-            DASHBOARD
-          </a>
-        </div>
-      </div>
-    </nav>
-  );
+function isActive(item: NavItem, route: Route) {
+  return item.route === route || (item.route === 'home' && route === 'read');
 }
 
+export default function Navbar({
+  route,
+  onOpenSettings,
+}: {
+  route: Route;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <>
+      <header className="sticky top-0 z-40 border-b border-line bg-paper/95 backdrop-blur supports-[backdrop-filter]:bg-paper/85">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+          <a href="#/" className="flex items-center gap-2.5 rounded-lg text-primary" aria-label="NeuroRead home">
+            <Logo className="h-8 w-8" />
+            <span className="font-display text-xl font-semibold text-ink">NeuroRead</span>
+          </a>
+
+          <nav aria-label="Main" className="hidden md:block">
+            <ul className="flex items-center gap-1">
+              {NAV_ITEMS.map((item) => {
+                const active = isActive(item, route);
+                return (
+                  <li key={item.route}>
+                    <a
+                      href={hrefFor(item.route)}
+                      aria-current={active ? 'page' : undefined}
+                      className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-base font-bold transition-colors ${
+                        active ? 'bg-primary/10 text-primary' : 'text-muted hover:bg-ink/5 hover:text-ink'
+                      }`}
+                    >
+                      <item.icon className="h-5 w-5" aria-hidden="true" />
+                      {item.label}
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-bold text-ink hover:border-primary/40"
+          >
+            <SlidersHorizontal className="h-5 w-5 text-primary" aria-hidden="true" />
+            <span className="hidden sm:inline">Reading settings</span>
+            <span className="sm:hidden">Settings</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Phones get a bottom tab bar: reachable with a thumb, always visible. */}
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface md:hidden"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <ul className="grid grid-cols-4">
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(item, route);
+            return (
+              <li key={item.route}>
+                <a
+                  href={hrefFor(item.route)}
+                  aria-current={active ? 'page' : undefined}
+                  className={`flex min-h-[3.75rem] flex-col items-center justify-center gap-0.5 text-xs font-bold ${
+                    active ? 'text-primary' : 'text-muted'
+                  }`}
+                >
+                  <span
+                    className={`flex h-7 w-12 items-center justify-center rounded-full ${active ? 'bg-primary/15' : ''}`}
+                  >
+                    <item.icon className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  {item.label}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    </>
+  );
+}
