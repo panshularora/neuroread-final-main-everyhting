@@ -14,7 +14,7 @@ Please open NEUROREAD first. This repo exists so the Vercel deploy keeps buildin
 
 | Part | Where | Config |
 |---|---|---|
-| Frontend (`frontend/frontend`, Vite + React) | Vercel, auto-deploys on push to `main` | `vercel.json` (builds with `vite build`, serves `dist/` with SPA fallback) |
+| Frontend (`frontend/frontend`, Vite + React) | Vercel, auto-deploys on push to `main` | `vercel.json` (runs `npm run build`, which type-checks then runs `vite build`; serves `dist/` with SPA fallback) |
 | Backend (FastAPI) | Render (not deployed yet) | deploy it from NEUROREAD's `render.yaml` (see below) |
 
 `frontend/frontend` is kept in sync with the frontend in NEUROREAD. The `backend/` folder here is an
