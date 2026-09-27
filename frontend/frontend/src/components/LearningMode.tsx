@@ -12,24 +12,7 @@ import {
   friendlyError,
 } from '../services/api';
 import AudioButton from './AudioButton';
-
-interface Exercise {
-  id: string;
-  type: 'phonics' | 'spelling' | 'comprehension' | 'matching';
-  prompt: string;
-  options: string[];
-  correct_answer: string;
-  difficulty: number;
-  target_skill: string;
-  hint: string;
-}
-
-interface Skill {
-  name: string;
-  display_name: string;
-  p_know: number;
-  mastered: boolean;
-}
+import type { AnswerResponse, Exercise, FlashcardResponse, SessionStats, SkillState } from '../types/api';
 
 type SubMode = 'adaptive' | 'read-along' | 'phonics' | 'stories';
 
@@ -101,12 +84,11 @@ export default function LearningMode({ active }: { active: boolean }) {
       >
         {subMode === 'adaptive' && <AdaptiveLearningSection userId={userId} />}
         {subMode === 'read-along' && (
-          <ReadAlongSection userId={userId} selectedStoryId={selectedStoryId} onSelectStory={setSelectedStoryId} />
+          <ReadAlongSection selectedStoryId={selectedStoryId} onSelectStory={setSelectedStoryId} />
         )}
-        {subMode === 'phonics' && <PhonicsLabSection userId={userId} />}
+        {subMode === 'phonics' && <PhonicsLabSection />}
         {subMode === 'stories' && (
           <StoryModeSection
-            userId={userId}
             selectedStoryId={selectedStoryId}
             onSelectStory={(id) => {
               setSelectedStoryId(id);
@@ -123,27 +105,20 @@ export default function LearningMode({ active }: { active: boolean }) {
 function AdaptiveLearningSection({ userId }: { userId: string }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentExercise, setCurrentExercise] = useState<Exercise | null>(null);
-  const [skills, setSkills] = useState<Skill[]>([]);
+  const [skills, setSkills] = useState<SkillState[]>([]);
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
   const [explanation, setExplanation] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [lastSkillUpdate, setLastSkillUpdate] = useState<any>(null);
-  const [lastIRTUpdate, setLastIRTUpdate] = useState<any>(null);
-  const [lastSM2Update, setLastSM2Update] = useState<any>(null);
-  const [stats, setStats] = useState({ correct: 0, total: 0, streak: 0, longest_streak: 0 });
+  const [loading, setLoading] = useState(true);
+  const [lastSkillUpdate, setLastSkillUpdate] = useState<AnswerResponse['skill_update'] | null>(null);
+  const [lastIRTUpdate, setLastIRTUpdate] = useState<AnswerResponse['irt_update'] | null>(null);
+  const [lastSM2Update, setLastSM2Update] = useState<AnswerResponse['sm2_update'] | null>(null);
+  const [stats, setStats] = useState<SessionStats>({ correct: 0, total: 0, streak: 0, longest_streak: 0 });
   const [answerDisabled, setAnswerDisabled] = useState(false);
   const [loadError, setLoadError] = useState('');
 
-  const age = parseInt(localStorage.getItem('neuroread-user-age') || '8', 10);
+  const [age] = useState(() => parseInt(localStorage.getItem('neuroread-user-age') || '8', 10));
 
-  // Start session on mount
-  useEffect(() => {
-    startSession();
-  }, []);
-
-  async function startSession() {
-    setLoading(true);
-    setLoadError('');
+  const openSession = useCallback(async () => {
     try {
       const data = await startLearningSession(userId, age, 'learning');
       setSessionId(data.session_id);
@@ -153,6 +128,17 @@ function AdaptiveLearningSection({ userId }: { userId: string }) {
     } finally {
       setLoading(false);
     }
+  }, [userId, age]);
+
+  // Start a session on mount.
+  useEffect(() => {
+    void openSession();
+  }, [openSession]);
+
+  function startSession() {
+    setLoading(true);
+    setLoadError('');
+    void openSession();
   }
 
   async function loadSkills() {
@@ -412,7 +398,7 @@ const STORIES = [
   }
 ];
 
-function ReadAlongSection({ selectedStoryId, onSelectStory }: { userId: string, selectedStoryId: string, onSelectStory: (id: string) => void }) {
+function ReadAlongSection({ selectedStoryId, onSelectStory }: { selectedStoryId: string; onSelectStory: (id: string) => void }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentWordIdx, setCurrentWordIdx] = useState(-1);
   const [speed, setSpeed] = useState(400);
@@ -499,24 +485,36 @@ function ReadAlongSection({ selectedStoryId, onSelectStory }: { userId: string, 
   );
 }
 
-function PhonicsLabSection({ userId: _userId }: { userId: string }) {
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+type FlashcardResult = { idx: number; card: FlashcardResponse['data'] | null; error: string };
+
+function PhonicsLabSection() {
   const [letterIdx, setLetterIdx] = useState(0);
-  const [flashcard, setFlashcard] = useState<any>(null);
-  const [failed, setFailed] = useState('');
-  const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<FlashcardResult | null>(null);
 
-  const fetchFlashcard = useCallback(async (idx: number) => {
-    setFailed('');
-    setFlashcard(null);
-    try {
-      const res = await getFlashcard(LETTERS[idx]);
-      setFlashcard(res?.data || res);
-    } catch (err) {
-      setFailed(friendlyError(err, "This letter card couldn't be loaded."));
-    }
-  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    getFlashcard(LETTERS[letterIdx])
+      .then((res) => {
+        if (!cancelled) setResult({ idx: letterIdx, card: res.data, error: '' });
+      })
+      .catch((err) => {
+        if (!cancelled) setResult({ idx: letterIdx, card: null, error: friendlyError(err, "This letter card couldn't be loaded.") });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [letterIdx, attempt]);
 
-  useEffect(() => { fetchFlashcard(letterIdx); }, [letterIdx, fetchFlashcard]);
+  const current = result?.idx === letterIdx ? result : null;
+  const flashcard = current?.card ?? null;
+  const failed = current?.error ?? '';
+  const retry = () => {
+    setResult(null);
+    setAttempt((a) => a + 1);
+  };
 
   const letter = flashcard?.letter || LETTERS[letterIdx];
 
@@ -572,7 +570,7 @@ function PhonicsLabSection({ userId: _userId }: { userId: string }) {
             <p className="mt-4 text-muted">{failed}</p>
             <button
               type="button"
-              onClick={() => fetchFlashcard(letterIdx)}
+              onClick={retry}
               className="mt-4 rounded-xl border border-line bg-surface px-4 py-2 font-bold hover:bg-ink/5"
             >
               Try again
@@ -589,7 +587,7 @@ function PhonicsLabSection({ userId: _userId }: { userId: string }) {
   );
 }
 
-function StoryModeSection({ selectedStoryId, onSelectStory }: { userId: string, selectedStoryId: string, onSelectStory: (id: string) => void }) {
+function StoryModeSection({ selectedStoryId, onSelectStory }: { selectedStoryId: string; onSelectStory: (id: string) => void }) {
   return (
     <div>
       <h2 className="text-2xl">Stories</h2>

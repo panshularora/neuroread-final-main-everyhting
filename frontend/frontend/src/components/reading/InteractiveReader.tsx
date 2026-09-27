@@ -1,38 +1,43 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import ReadingModes from './ReadingModes';
+import type { ReadingMode } from './ReadingModes';
 import HeatmapView from './HeatmapView';
 import { getHeatmap, getChunks, getConceptGraph } from '../../services/api';
 import { useAsync } from '../../hooks/useAsync';
 import ConceptGraph from './ConceptGraph';
+import type { ConceptGraphResponse, HeatmapSentence, TextChunk } from '../../types/api';
 
-function splitWords(text) {
+function splitWords(text: string) {
   return String(text || '').split(/(\b[\w']+\b)/g);
 }
 
+interface InteractiveReaderProps {
+  text: string;
+  dyslexiaStyle?: CSSProperties;
+  difficultWordsSet?: Set<string>;
+  onWordClick?: (word: string) => void;
+  onExplainSentence?: (sentence: string) => void;
+}
+
+// The parent keys this component by text, so a new text starts from a clean state.
 export default function InteractiveReader({
   text,
   dyslexiaStyle,
   difficultWordsSet,
   onWordClick,
   onExplainSentence,
-}) {
-  const [mode, setMode] = useState('guided');
+}: InteractiveReaderProps) {
+  const [mode, setMode] = useState<ReadingMode>('guided');
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const heatmapAsync = useAsync(getHeatmap, { retries: 0 });
-  const chunksAsync = useAsync(getChunks, { retries: 0 });
-  const graphAsync = useAsync(getConceptGraph, { retries: 0 });
+  const { run: runHeatmap } = useAsync(getHeatmap, { retries: 0 });
+  const { run: runChunks } = useAsync(getChunks, { retries: 0 });
+  const { run: runGraph } = useAsync(getConceptGraph, { retries: 0 });
 
-  const [heatmap, setHeatmap] = useState([]);
-  const [chunks, setChunks] = useState([]);
-  const [graph, setGraph] = useState(null);
-
-  useEffect(() => {
-    setActiveIdx(0);
-    setHeatmap([]);
-    setChunks([]);
-    setGraph(null);
-  }, [text]);
+  const [heatmap, setHeatmap] = useState<HeatmapSentence[]>([]);
+  const [chunks, setChunks] = useState<TextChunk[]>([]);
+  const [graph, setGraph] = useState<ConceptGraphResponse | null>(null);
 
   useEffect(() => {
     const t = (text || '').trim();
@@ -40,13 +45,13 @@ export default function InteractiveReader({
     // Heatmap is useful across all modes.
     (async () => {
       try {
-        const res = await heatmapAsync.run(t);
+        const res = await runHeatmap(t);
         setHeatmap(res?.heatmap || []);
       } catch {
         setHeatmap([]);
       }
     })();
-  }, [text]);
+  }, [text, runHeatmap]);
 
   useEffect(() => {
     const t = (text || '').trim();
@@ -54,34 +59,33 @@ export default function InteractiveReader({
     if (mode === 'chunk') {
       (async () => {
         try {
-          const res = await chunksAsync.run(t);
+          const res = await runChunks(t);
           setChunks(res?.chunks || []);
         } catch {
           setChunks([]);
         }
       })();
     }
-  }, [mode, text]);
+  }, [mode, text, runChunks]);
 
   useEffect(() => {
     const t = (text || '').trim();
     if (!t) return;
-    // Build concept graph lazily once.
-    if (graph) return;
+    // The concept graph is built once per text.
     (async () => {
       try {
-        const res = await graphAsync.run(t);
+        const res = await runGraph(t);
         setGraph(res);
       } catch {
         setGraph(null);
       }
     })();
-  }, [text]);
+  }, [text, runGraph]);
 
   const guidedSentences = heatmap;
   const focusSentence = guidedSentences?.[activeIdx];
 
-  const renderTextWithWordClicks = (t) => {
+  const renderTextWithWordClicks = (t: string) => {
     const parts = splitWords(t);
     return parts.map((p, idx) => {
       const key = p && /\b[\w']+\b/.test(p) ? p.toLowerCase() : null;

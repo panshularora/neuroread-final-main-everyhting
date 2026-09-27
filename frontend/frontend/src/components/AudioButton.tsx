@@ -1,14 +1,22 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Square, Volume2 } from 'lucide-react';
 import { BASE_URL, fetchTTSAudio } from '../services/api';
 
-const ttsCache = new Map();
+const ttsCache = new Map<string, string>();
 
-export default function AudioButton({ src, text, autoPlay = false, className = '' }) {
+interface AudioButtonProps {
+  /** A ready audio file; paths starting with / are served by the backend. */
+  src?: string;
+  /** Text to synthesise when there is no src. */
+  text?: string;
+  className?: string;
+}
+
+export default function AudioButton({ src, text, className = '' }: AudioButtonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [failed, setFailed] = useState(false);
-  const audioRef = useRef(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const performPlay = async () => {
     if (isLoading) return;
@@ -69,15 +77,6 @@ export default function AudioButton({ src, text, autoPlay = false, className = '
       setFailed(true);
     }
   };
-
-  useEffect(() => {
-    if (autoPlay) {
-      const timer = setTimeout(() => {
-        performPlay();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [src, text, autoPlay]);
 
   if (!src && !text) return null;
 

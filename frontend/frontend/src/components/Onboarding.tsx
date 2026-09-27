@@ -11,7 +11,7 @@ interface OnboardingProps {
 
 type Recommendation = { route: Route; label: string; reason: string; Icon: typeof BookOpenText };
 
-export function recommendStart(age: number, difficulties: string[]): Recommendation {
+function recommendStart(age: number, difficulties: string[]): Recommendation {
   const wantsReview = difficulties.includes('All of these');
   const wantsReading = difficulties.includes('Reading words aloud') || difficulties.includes('Spelling');
   const wantsUnderstanding = difficulties.includes('Understanding long texts');

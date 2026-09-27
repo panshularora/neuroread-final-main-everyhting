@@ -1,33 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { askCompanion } from '../../services/api';
 import { useAsync } from '../../hooks/useAsync';
 
-export default function CompanionAvatar({ text }) {
+export default function CompanionAvatar({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState('confused');
-  const [message, setMessage] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
+  const [reply, setReply] = useState<{ message: string; suggestions: string[] }>({ message: '', suggestions: [] });
 
   const companionAsync = useAsync(askCompanion, { retries: 0 });
 
-  useEffect(() => {
-    if (!open) return;
-    if (!text?.trim()) {
-      setMessage('Paste some text and I’ll help you read it.');
-      setSuggestions([]);
-    }
-  }, [open, text]);
+  // With no text there is nothing to ask about, so show a prompt instead of the last reply.
+  const hasText = Boolean(text?.trim());
+  const message = hasText ? reply.message : 'Paste some text and I’ll help you read it.';
+  const suggestions = hasText ? reply.suggestions : [];
 
   const run = async () => {
     const t = (text || '').trim();
     if (!t) return;
     try {
       const res = await companionAsync.run(t, action);
-      setMessage(res?.message || '');
-      setSuggestions(res?.suggestions || []);
-    } catch (e) {
-      setMessage('I’m having trouble connecting to the companion service.');
-      setSuggestions([]);
+      setReply({ message: res?.message || '', suggestions: res?.suggestions || [] });
+    } catch {
+      setReply({ message: 'I’m having trouble connecting to the companion service.', suggestions: [] });
     }
   };
 

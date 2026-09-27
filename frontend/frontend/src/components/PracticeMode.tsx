@@ -18,8 +18,17 @@ import {
   DictationGame, ErrorCorrectionGame, WordSortingGame, SyllableTappingGame,
   WordChainsGame, SentenceReconstructionGame, RhymeFinderGame, FlashcardsGame, HomophonesGame
 } from './PracticeGames';
+import type { PracticeGameData, PracticeGameType } from '../types/api';
 
-const PRACTICE_MODES = [
+// A loaded question, tagged with its game so the data type follows the game.
+type LoadedGame = { [G in PracticeGameType]: { type: G; data: PracticeGameData[G] } }[PracticeGameType];
+
+async function loadGame<G extends PracticeGameType>(type: G): Promise<LoadedGame> {
+  const data = await generatePracticeGame(type);
+  return { type, data } as LoadedGame;
+}
+
+const PRACTICE_MODES: { id: PracticeGameType; title: string; Icon: typeof Ear; skill: string; desc: string }[] = [
   { id: 'dictation', title: 'Dictation', Icon: Ear, skill: 'Spelling', desc: 'Hear a word and type it.' },
   { id: 'error_correction', title: 'Fix the spelling', Icon: SpellCheck, skill: 'Spelling', desc: 'Spot the misspelled word in a sentence and pick the right one.' },
   { id: 'word_sorting', title: 'Word sorting', Icon: Layers, skill: 'Letter reversal', desc: 'Sort words by the letter they use, such as b or d.' },
@@ -32,31 +41,54 @@ const PRACTICE_MODES = [
 ];
 
 // The expected answer for each game, shown after a wrong attempt.
-function expectedAnswer(game: string, data: any): string | null {
-  if (!data) return null;
-  switch (game) {
+function expectedAnswer(game: LoadedGame | null): string | null {
+  if (!game) return null;
+  switch (game.type) {
     case 'dictation':
     case 'flashcards':
-      return data.word;
+      return game.data.word;
     case 'error_correction':
     case 'homophones':
-      return data.answer;
+      return game.data.answer;
     case 'syllable_tapping':
-      return `${data.syllables} syllable${data.syllables === 1 ? '' : 's'}`;
+      return `${game.data.syllables} syllable${game.data.syllables === 1 ? '' : 's'}`;
     case 'word_chains':
-      return data.chain?.[1];
+      return game.data.chain?.[1] ?? null;
     case 'sentence_reconstruction':
-      return data.words?.join(' ');
+      return game.data.words?.join(' ') ?? null;
     case 'rhyme_finder':
-      return data.answers?.join(', ');
+      return game.data.answers?.join(', ') ?? null;
     default:
       return null;
   }
 }
 
-const PracticeMode = ({ active }) => {
-  const [activeGame, setActiveGame] = useState<string | null>(null);
-  const [gameData, setGameData] = useState<any>(null);
+function GameView({ game, onComplete }: { game: LoadedGame; onComplete: (correct: boolean) => void }) {
+  switch (game.type) {
+    case 'dictation':
+      return <DictationGame data={game.data} onComplete={onComplete} />;
+    case 'error_correction':
+      return <ErrorCorrectionGame data={game.data} onComplete={onComplete} />;
+    case 'word_sorting':
+      return <WordSortingGame data={game.data} onComplete={onComplete} />;
+    case 'syllable_tapping':
+      return <SyllableTappingGame data={game.data} onComplete={onComplete} />;
+    case 'word_chains':
+      return <WordChainsGame data={game.data} onComplete={onComplete} />;
+    case 'sentence_reconstruction':
+      return <SentenceReconstructionGame data={game.data} onComplete={onComplete} />;
+    case 'rhyme_finder':
+      return <RhymeFinderGame data={game.data} onComplete={onComplete} />;
+    case 'flashcards':
+      return <FlashcardsGame data={game.data} onComplete={onComplete} />;
+    case 'homophones':
+      return <HomophonesGame data={game.data} onComplete={onComplete} />;
+  }
+}
+
+const PracticeMode = ({ active }: { active: boolean }) => {
+  const [activeGame, setActiveGame] = useState<PracticeGameType | null>(null);
+  const [gameData, setGameData] = useState<LoadedGame | null>(null);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ correct: boolean } | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -69,13 +101,13 @@ const PracticeMode = ({ active }) => {
 
   if (!active) return null;
 
-  const startGame = async (modeId: string) => {
+  const startGame = async (modeId: PracticeGameType) => {
     setActiveGame(modeId);
     setLoading(true);
     setFeedback(null);
     setLoadError('');
     try {
-      setGameData(await generatePracticeGame(modeId));
+      setGameData(await loadGame(modeId));
     } catch (err) {
       setLoadError(friendlyError(err, "That game couldn't be loaded. Please try again."));
       setActiveGame(null);
@@ -97,7 +129,7 @@ const PracticeMode = ({ active }) => {
 
   if (activeGame) {
     const mode = PRACTICE_MODES.find((m) => m.id === activeGame);
-    const answer = expectedAnswer(activeGame, gameData);
+    const answer = expectedAnswer(gameData);
     return (
       <div key={activeGame} className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -163,16 +195,8 @@ const PracticeMode = ({ active }) => {
             </div>
           </div>
         ) : (
-          <div key={gameData?.id || JSON.stringify(gameData).slice(0, 40)}>
-            {activeGame === 'dictation' && <DictationGame data={gameData} onComplete={handleComplete} />}
-            {activeGame === 'error_correction' && <ErrorCorrectionGame data={gameData} onComplete={handleComplete} />}
-            {activeGame === 'word_sorting' && <WordSortingGame data={gameData} onComplete={handleComplete} />}
-            {activeGame === 'syllable_tapping' && <SyllableTappingGame data={gameData} onComplete={handleComplete} />}
-            {activeGame === 'word_chains' && <WordChainsGame data={gameData} onComplete={handleComplete} />}
-            {activeGame === 'sentence_reconstruction' && <SentenceReconstructionGame data={gameData} onComplete={handleComplete} />}
-            {activeGame === 'rhyme_finder' && <RhymeFinderGame data={gameData} onComplete={handleComplete} />}
-            {activeGame === 'flashcards' && <FlashcardsGame data={gameData} onComplete={handleComplete} />}
-            {activeGame === 'homophones' && <HomophonesGame data={gameData} onComplete={handleComplete} />}
+          <div key={gameData.data.id}>
+            <GameView game={gameData} onComplete={handleComplete} />
           </div>
         )}
       </div>

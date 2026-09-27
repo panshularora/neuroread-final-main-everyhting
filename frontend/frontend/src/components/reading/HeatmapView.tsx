@@ -1,11 +1,19 @@
-function bgForDifficulty(diff) {
+import type { HeatmapSentence } from '../../types/api';
+
+function bgForDifficulty(diff: string) {
   const d = String(diff || '').toLowerCase();
   if (d === 'high') return 'bg-red-500/15 border-red-500/25';
   if (d === 'moderate') return 'bg-yellow-400/20 border-yellow-500/25';
   return 'bg-green-500/15 border-green-500/25';
 }
 
-export default function HeatmapView({ sentences, activeIndex, onSentenceClick }) {
+interface HeatmapViewProps {
+  sentences: HeatmapSentence[];
+  activeIndex: number;
+  onSentenceClick?: (idx: number, sentence: HeatmapSentence) => void;
+}
+
+export default function HeatmapView({ sentences, activeIndex, onSentenceClick }: HeatmapViewProps) {
   if (!sentences?.length) return null;
 
   return (

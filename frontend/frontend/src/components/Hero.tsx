@@ -1,5 +1,5 @@
 import { ArrowRight } from 'lucide-react';
-import { colorizeText } from '../utils/phonemeColors';
+import { ColorizedText } from '../utils/phonemeColors';
 
 // Scores come from the backend's cognitive-load formula run on these two
 // sentences (backend/app/services/cognitive_load.py).
@@ -73,7 +73,7 @@ export default function Hero() {
           <div className="mt-3 rounded-2xl border border-primary/25 bg-primary/5 p-4 sm:p-5">
             <p className="mb-2 text-sm font-bold text-primary">Simplified, with letter colour cues</p>
             <p className="text-lg text-ink" style={{ lineHeight: 1.75 }}>
-              {colorizeText(AFTER.text)}
+              <ColorizedText text={AFTER.text} />
             </p>
             <LoadMeter score={AFTER.score} label={AFTER.label} tone="low" />
           </div>

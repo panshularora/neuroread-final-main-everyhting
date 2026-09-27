@@ -1,40 +1,54 @@
 import { useState, useRef, useEffect } from 'react';
+import type { ChangeEvent } from 'react';
 import { Camera, FileText, ImageUp, Play, Square, Pause, WandSparkles, Loader2 } from 'lucide-react';
 import { uploadDocument, simplifyText, checkTextDifficulty, friendlyError } from '../services/api';
 import { useAsync } from '../hooks/useAsync';
 import Tesseract from 'tesseract.js';
 import { useAccessibilityStore } from '../stores/accessibilityStore';
-import { colorizeText } from '../utils/phonemeColors.tsx';
+import { ColorizedText } from '../utils/phonemeColors.tsx';
 import { speakWithSync } from '../utils/tts';
+import type { TTSController } from '../utils/tts';
+import type { DifficultyCheck } from '../types/api';
 
+interface AssistiveModeProps {
+  onOpenSimplifier: () => void;
+  onRunSimplifier: (text: string) => void;
+  onSetInputText: (text: string) => void;
+}
 
+/** Text taken from an uploaded document or a scanned page. */
+interface DocResult {
+  raw_text: string;
+  simplified_text: string;
+  keywords: string[];
+  note?: string;
+}
 
-export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifier, onSetInputText, onNavigate }) {
-  const [docResult, setDocResult] = useState(null);
+type DocTab = 'raw' | 'simplified' | 'audio';
+
+export default function AssistiveMode({ onOpenSimplifier, onRunSimplifier, onSetInputText }: AssistiveModeProps) {
+  const [docResult, setDocResult] = useState<DocResult | null>(null);
   const [docError, setDocError] = useState('');
   const [ocrLoading, setOcrLoading] = useState(false);
   const uploadAsync = useAsync(uploadDocument, { retries: 0 });
   
   // Camera & OCR States
-  const fileInputRef = useRef(null);
-  const videoRef = useRef(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [stream, setStream] = useState(null);
-  const [activeTab, setActiveTab] = useState('raw'); // 'raw', 'simplified', 'audio'
+  const [activeTab, setActiveTab] = useState<DocTab>('raw');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [highlightMode, setHighlightMode] = useState(false);
 
-  // Accessibility additions
-
-  const [difficultyResult, setDifficultyResult] = useState(null);
+  const [difficultyResult, setDifficultyResult] = useState<DifficultyCheck | null>(null);
   const [checkingDifficulty, setCheckingDifficulty] = useState(false);
-  const [highlightedCharRange, setHighlightedCharRange] = useState(null);
   const [simplifiedText, setSimplifiedText] = useState('');
-  const ttsControllerRef = useRef(null);
+  const ttsControllerRef = useRef<TTSController | null>(null);
   const accessibility = useAccessibilityStore();
 
   // Web Speech API
-  const speakText = (text) => {
+  const speakText = (text: string) => {
     if (!text) return;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.9;
@@ -51,7 +65,7 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
   const stopSpeech = () => { window.speechSynthesis.cancel(); setIsSpeaking(false); };
 
   // Difficulty check
-  const checkDifficulty = async (textToCheck) => {
+  const checkDifficulty = async (textToCheck?: string) => {
     const text = textToCheck || simplifiedText;
     if (!text || !text.trim()) return;
     setCheckingDifficulty(true);
@@ -64,40 +78,19 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
     }
   };
 
-  // TTS with word-level sync
-  const startReadingAloud = (text) => {
-    if (ttsControllerRef.current) ttsControllerRef.current.stop();
-    setHighlightedCharRange(null);
-
-    const words = text.split(' ');
-    let charPos = 0;
-    const wordOffsets = words.map(w => {
-      const start = charPos;
-      charPos += w.length + 1;
-      return { start, end: start + w.length };
-    });
-
-    const ctrl = speakWithSync(
-      text,
-      { rate: accessibility.ttsSpeed },
-      (charIndex) => {
-        const wordIdx = wordOffsets.findIndex(
-          w => charIndex >= w.start && charIndex < w.end
-        );
-        if (wordIdx >= 0) setHighlightedCharRange(wordOffsets[wordIdx]);
-      },
-      () => setHighlightedCharRange(null)
-    );
+  const startReadingAloud = (text: string) => {
+    ttsControllerRef.current?.stop();
+    const ctrl = speakWithSync(text, { rate: accessibility.ttsSpeed });
     ttsControllerRef.current = ctrl;
     ctrl.play();
     setIsSpeaking(true);
   };
 
   // Keyword Extraction (Basic NLP Logic)
-  const extractKeywords = (text) => {
+  const extractKeywords = (text: string) => {
     const stopWords = ["the", "is", "and", "a", "to", "of", "in", "it", "that", "with", "as", "for"];
     const words = text.toLowerCase().replace(/[^\w\s]/g, "").split(" ");
-    const freq = {};
+    const freq: Record<string, number> = {};
     words.forEach(word => {
       if (!stopWords.includes(word) && word.length > 3) {
         freq[word] = (freq[word] || 0) + 1;
@@ -106,7 +99,7 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
     return Object.keys(freq).sort((a, b) => freq[b] - freq[a]).slice(0, 5);
   };
 
-  const renderHighlightedText = (text, keywords) => {
+  const renderHighlightedText = (text: string, keywords: string[]) => {
     if (!highlightMode || !keywords?.length || !text) return text;
     const regex = new RegExp(`\\b(${keywords.join('|')})\\b`, 'gi');
     const parts = text.split(regex);
@@ -125,44 +118,47 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
     setDocResult(null);
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      setStream(s);
+      streamRef.current = s;
       if (videoRef.current) videoRef.current.srcObject = s;
-    } catch (err) {
+    } catch {
       setDocError("The camera couldn't be opened. Check that this site is allowed to use it.");
       setCameraOpen(false);
     }
   };
 
   const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-    }
-    setStream(null);
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
     setCameraOpen(false);
   };
 
+  // Release the camera and any speech when leaving the page.
   useEffect(() => {
+    const tts = ttsControllerRef;
+    const stream = streamRef;
     return () => {
-      stopCamera();
+      stream.current?.getTracks().forEach(t => t.stop());
       window.speechSynthesis.cancel();
-      if (ttsControllerRef.current) ttsControllerRef.current.stop();
+      tts.current?.stop();
     };
   }, []);
 
   const captureAndScan = async () => {
-    if (!videoRef.current) return;
+    const video = videoRef.current;
+    if (!video) return;
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(videoRef.current, 0, 0);
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/png");
     
     stopCamera();
     handleOcrExtraction(dataUrl);
   };
 
-  const handleOcrExtraction = async (imageSource) => {
+  const handleOcrExtraction = async (imageSource: string | File) => {
     setOcrLoading(true);
     setDocError('');
     try {
@@ -174,11 +170,9 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
       }
       let simplified = rawText;
       let note = '';
-      let load: number | string = 'Not scored';
       try {
         const data = await simplifyText(rawText, 'Default');
         simplified = data?.simplified_text || rawText;
-        load = Math.round(data?.original_analysis?.cognitive_load_score ?? 0);
       } catch {
         note = 'The text was read from the image, but the simplifier is not reachable, so it is shown unchanged.';
       }
@@ -186,20 +180,20 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
       setDocResult({
         raw_text: rawText,
         simplified_text: simplified,
-        metrics: { cognitive_load: load },
         keywords: extractKeywords(rawText),
         note,
       });
       setActiveTab('simplified');
-    } catch (err) {
+    } catch {
       setDocError("Couldn't read text from that image. Try a sharper, well-lit photo.");
     } finally {
       setOcrLoading(false);
     }
   };
 
-  const handleFileChange = async (e) => {
-    const file = e.target.files?.[0];
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
     setDocError('');
     setDocResult(null);
@@ -215,7 +209,6 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
         setDocResult({
           raw_text: res.original_text || st,
           simplified_text: st,
-          metrics: res.metrics || { cognitive_load: 'N/A' },
           keywords: res.keywords || extractKeywords(st)
         });
         setActiveTab('simplified');
@@ -225,7 +218,7 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
         setOcrLoading(false);
       }
     }
-    e.target.value = '';
+    input.value = '';
   };
 
   const runDemo = () => {
@@ -262,7 +255,7 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
     }, 300);
   };
 
-  const tabs = [
+  const tabs: { id: DocTab; label: string }[] = [
     { id: 'raw', label: 'Original' },
     { id: 'simplified', label: 'Simplified' },
     { id: 'audio', label: 'Listen' },
@@ -436,7 +429,7 @@ export default function AssistiveMode({ active, onOpenSimplifier, onRunSimplifie
                   wordSpacing: `${accessibility.wordSpacing}em`,
                 }}
               >
-                {colorizeText(docResult.simplified_text || '')}
+                <ColorizedText text={docResult.simplified_text || ''} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <button

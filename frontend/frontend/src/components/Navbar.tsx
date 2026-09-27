@@ -6,7 +6,7 @@ import type { Route } from '../lib/useHashRoute';
 
 type NavItem = { route: Route; label: string; icon: LucideIcon };
 
-export const NAV_ITEMS: NavItem[] = [
+const NAV_ITEMS: NavItem[] = [
   { route: 'home', label: 'Read', icon: BookOpenText },
   { route: 'learn', label: 'Learn', icon: GraduationCap },
   { route: 'practice', label: 'Practice', icon: Puzzle },

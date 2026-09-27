@@ -1,5 +1,24 @@
 import React, { useState, useEffect } from 'react';
+import type { FormEvent } from 'react';
 import { ArrowRight, Volume2 } from 'lucide-react';
+import type {
+  DictationData,
+  ErrorCorrectionData,
+  FlashcardsData,
+  HomophonesData,
+  RhymeFinderData,
+  SentenceReconstructionData,
+  SyllableTappingData,
+  WordChainsData,
+  WordSortingData,
+} from '../types/api';
+
+// Each game gets one question and reports whether it was answered correctly.
+// The parent remounts a game for every new question, so state starts fresh.
+interface GameProps<T> {
+  data: T;
+  onComplete: (correct: boolean) => void;
+}
 
 // Browser speech synthesis: instant, works offline and needs no API key.
 const speak = (text?: string) => {
@@ -33,16 +52,24 @@ function BigWord({ children }: { children: React.ReactNode }) {
   return <p className="mb-8 font-display text-5xl font-bold">{children}</p>;
 }
 
-export const DictationGame = ({ data, onComplete }) => {
+function ChainArrow() {
+  return <ArrowRight className="h-5 w-5 shrink-0 text-muted" aria-hidden="true" />;
+}
+
+function ChainWord({ w }: { w: string }) {
+  return <span className="rounded-xl bg-paper px-4 py-2 text-xl font-bold">{w}</span>;
+}
+
+export const DictationGame = ({ data, onComplete }: GameProps<DictationData>) => {
   const [input, setInput] = useState('');
 
   useEffect(() => {
-    if (!data?.word) return;
+    if (!data.word) return;
     const t = setTimeout(() => speak(data.word), 300);
     return () => clearTimeout(t);
   }, [data]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
     onComplete(input.trim().toLowerCase() === data.word.toLowerCase());
@@ -52,7 +79,7 @@ export const DictationGame = ({ data, onComplete }) => {
     <GameShell title="Dictation" instructions="Listen to the word, then type how it is spelled.">
       <button
         type="button"
-        onClick={() => speak(data?.word)}
+        onClick={() => speak(data.word)}
         className="mb-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 font-bold text-white hover:bg-accent/90"
       >
         <Volume2 className="h-5 w-5" aria-hidden="true" /> Play the word again
@@ -76,8 +103,7 @@ export const DictationGame = ({ data, onComplete }) => {
   );
 };
 
-export const ErrorCorrectionGame = ({ data, onComplete }) => {
-  if (!data) return null;
+export const ErrorCorrectionGame = ({ data, onComplete }: GameProps<ErrorCorrectionData>) => {
   const [before, after] = data.sentence.split('____');
   return (
     <GameShell title="Fix the spelling" instructions={`Pick the correct spelling to replace "${data.incorrect}".`}>
@@ -97,15 +123,14 @@ export const ErrorCorrectionGame = ({ data, onComplete }) => {
   );
 };
 
-export const WordSortingGame = ({ data, onComplete }) => {
+export const WordSortingGame = ({ data, onComplete }: GameProps<WordSortingData>) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fails, setFails] = useState(0);
   const [wrong, setWrong] = useState(false);
 
-  if (!data) return null;
   const wordObj = data.words[currentIndex];
 
-  const handleBucket = (bucketNum) => {
+  const handleBucket = (bucketNum: number) => {
     if (wordObj.bucket === bucketNum) {
       setWrong(false);
       if (currentIndex === data.words.length - 1) onComplete(fails === 0);
@@ -139,8 +164,7 @@ export const WordSortingGame = ({ data, onComplete }) => {
   );
 };
 
-export const SyllableTappingGame = ({ data, onComplete }) => {
-  if (!data) return null;
+export const SyllableTappingGame = ({ data, onComplete }: GameProps<SyllableTappingData>) => {
   return (
     <GameShell title="Syllable tapping" instructions="How many beats (syllables) does this word have?">
       <div className="mb-8 flex items-center gap-3">
@@ -170,29 +194,25 @@ export const SyllableTappingGame = ({ data, onComplete }) => {
   );
 };
 
-export const WordChainsGame = ({ data, onComplete }) => {
+export const WordChainsGame = ({ data, onComplete }: GameProps<WordChainsData>) => {
   const [input, setInput] = useState('');
-  if (!data) return null;
 
   // The learner fills in the second word of the chain.
   const targetWord = data.chain[1];
   const rest = data.chain.slice(2);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
     onComplete(input.trim().toLowerCase() === targetWord.toLowerCase());
   };
 
-  const Arrow = () => <ArrowRight className="h-5 w-5 shrink-0 text-muted" aria-hidden="true" />;
-  const Word = ({ w }: { w: string }) => <span className="rounded-xl bg-paper px-4 py-2 text-xl font-bold">{w}</span>;
-
   return (
     <GameShell title="Word chains" instructions="Change one letter to get from the first word to the next.">
       <form onSubmit={handleSubmit} className="flex flex-col items-center gap-6">
         <div className="flex flex-wrap items-center justify-center gap-3">
-          <Word w={data.chain[0]} />
-          <Arrow />
+          <ChainWord w={data.chain[0]} />
+          <ChainArrow />
           <label htmlFor="chain-input" className="sr-only">Missing word</label>
           <input
             id="chain-input"
@@ -207,8 +227,8 @@ export const WordChainsGame = ({ data, onComplete }) => {
           />
           {rest.map((w) => (
             <React.Fragment key={w}>
-              <Arrow />
-              <Word w={w} />
+              <ChainArrow />
+              <ChainWord w={w} />
             </React.Fragment>
           ))}
         </div>
@@ -218,32 +238,23 @@ export const WordChainsGame = ({ data, onComplete }) => {
   );
 };
 
-export const SentenceReconstructionGame = ({ data, onComplete }) => {
-  const [pool, setPool] = useState<any[]>([]);
-  const [assembled, setAssembled] = useState<any[]>([]);
+export const SentenceReconstructionGame = ({ data, onComplete }: GameProps<SentenceReconstructionData>) => {
+  const [pool, setPool] = useState<string[]>(() => [...data.words].sort(() => Math.random() - 0.5));
+  const [assembled, setAssembled] = useState<string[]>([]);
 
-  useEffect(() => {
-    if (data?.words) {
-      setPool([...data.words].sort(() => Math.random() - 0.5));
-      setAssembled([]);
-    }
-  }, [data]);
-
-  const selectWord = (word, idx) => {
+  const selectWord = (word: string, idx: number) => {
     setAssembled([...assembled, word]);
     const p = [...pool];
     p.splice(idx, 1);
     setPool(p);
   };
 
-  const removeWord = (word, idx) => {
+  const removeWord = (word: string, idx: number) => {
     setPool([...pool, word]);
     const a = [...assembled];
     a.splice(idx, 1);
     setAssembled(a);
   };
-
-  if (!data) return null;
 
   return (
     <GameShell title="Sentence builder" instructions="Tap the words in order to build the sentence. Tap a placed word to take it back.">
@@ -289,8 +300,7 @@ export const SentenceReconstructionGame = ({ data, onComplete }) => {
   );
 };
 
-export const RhymeFinderGame = ({ data, onComplete }) => {
-  if (!data) return null;
+export const RhymeFinderGame = ({ data, onComplete }: GameProps<RhymeFinderData>) => {
   return (
     <GameShell title="Rhyme finder" instructions="Pick a word that rhymes with:">
       <BigWord>{data.target}</BigWord>
@@ -305,23 +315,18 @@ export const RhymeFinderGame = ({ data, onComplete }) => {
   );
 };
 
-export const FlashcardsGame = ({ data, onComplete }) => {
+export const FlashcardsGame = ({ data, onComplete }: GameProps<FlashcardsData>) => {
   const [showWord, setShowWord] = useState(true);
   const [input, setInput] = useState('');
 
-  const flash = () => {
-    setShowWord(true);
+  // The word is shown briefly, then hidden so it has to be typed from memory.
+  useEffect(() => {
+    if (!showWord) return;
     const t = setTimeout(() => setShowWord(false), 800);
     return () => clearTimeout(t);
-  };
+  }, [showWord]);
 
-  useEffect(() => {
-    if (!data) return;
-    setInput('');
-    return flash();
-  }, [data]);
-
-  const handleSubmit = (e) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
     onComplete(input.trim().toLowerCase() === data.word.toLowerCase());
@@ -331,7 +336,7 @@ export const FlashcardsGame = ({ data, onComplete }) => {
     <GameShell title="Speed flashcards" instructions={showWord ? 'Look closely…' : 'Type the word you just saw.'}>
       <div className="flex min-h-[96px] items-center justify-center">
         {showWord ? (
-          <p className="font-display text-6xl font-bold">{data?.word}</p>
+          <p className="font-display text-6xl font-bold">{data.word}</p>
         ) : (
           <form onSubmit={handleSubmit} className="flex w-full flex-col items-center gap-3 sm:flex-row">
             <label htmlFor="flash-input" className="sr-only">The word you saw</label>
@@ -350,7 +355,7 @@ export const FlashcardsGame = ({ data, onComplete }) => {
         )}
       </div>
       {!showWord && (
-        <button type="button" onClick={flash} className="mt-6 text-sm font-bold text-muted underline underline-offset-4 hover:text-ink">
+        <button type="button" onClick={() => setShowWord(true)} className="mt-6 text-sm font-bold text-muted underline underline-offset-4 hover:text-ink">
           Show it again
         </button>
       )}
@@ -358,8 +363,7 @@ export const FlashcardsGame = ({ data, onComplete }) => {
   );
 };
 
-export const HomophonesGame = ({ data, onComplete }) => {
-  if (!data) return null;
+export const HomophonesGame = ({ data, onComplete }: GameProps<HomophonesData>) => {
   return (
     <GameShell title="Homophones" instructions="Which word fits the gap?">
       <p className="mb-8 max-w-xl text-2xl">

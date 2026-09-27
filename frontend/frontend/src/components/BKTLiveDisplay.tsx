@@ -1,45 +1,11 @@
 import SkillBar from './SkillBar';
-
-interface Skill {
-  name: string;
-  display_name: string;
-  p_know: number;
-  mastered: boolean;
-}
-
-interface BKTParams {
-  p_transit: number;
-  p_slip: number;
-  p_guess: number;
-}
-
-interface SkillUpdate {
-  skill_name: string;
-  p_know_before: number;
-  p_know_after: number;
-  mastered: boolean;
-  delta: number;
-  bkt_params?: BKTParams;
-}
-
-interface IRTUpdate {
-  ability_before: number;
-  ability_after: number;
-  zpd_zone: string;
-  zpd_label: string;
-}
-
-interface SM2Update {
-  next_review_days: number;
-  next_review_label: string;
-  easiness_factor: number;
-}
+import type { AnswerResponse, SkillState } from '../types/api';
 
 interface BKTLiveDisplayProps {
-  skills: Skill[];
-  lastSkillUpdate?: SkillUpdate | null;
-  lastIRTUpdate?: IRTUpdate | null;
-  lastSM2Update?: SM2Update | null;
+  skills: SkillState[];
+  lastSkillUpdate?: AnswerResponse['skill_update'] | null;
+  lastIRTUpdate?: AnswerResponse['irt_update'] | null;
+  lastSM2Update?: AnswerResponse['sm2_update'] | null;
   sessionId?: string;
 }
 

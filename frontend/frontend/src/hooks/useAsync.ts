@@ -1,26 +1,26 @@
 import { useCallback, useRef, useState } from 'react';
 
-export function useAsync(asyncFn, { retries = 0 } = {}) {
+export function useAsync<Args extends unknown[], Result>(
+  asyncFn: (...args: Args) => Promise<Result>,
+  { retries = 0 }: { retries?: number } = {},
+) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const lastArgsRef = useRef(null);
+  const [error, setError] = useState<unknown>(null);
+  const lastArgsRef = useRef<Args | null>(null);
 
   const run = useCallback(
-    async (...args) => {
+    async (...args: Args): Promise<Result> => {
       lastArgsRef.current = args;
       setLoading(true);
       setError(null);
 
-      let attempt = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
+      for (let attempt = 0; ; attempt += 1) {
         try {
           const result = await asyncFn(...args);
           setLoading(false);
           return result;
         } catch (e) {
-          attempt += 1;
-          if (attempt > retries) {
+          if (attempt >= retries) {
             setLoading(false);
             setError(e);
             throw e;
@@ -28,14 +28,13 @@ export function useAsync(asyncFn, { retries = 0 } = {}) {
         }
       }
     },
-    [asyncFn, retries]
+    [asyncFn, retries],
   );
 
-  const retry = useCallback(async () => {
+  const retry = useCallback(async (): Promise<Result | null> => {
     if (!lastArgsRef.current) return null;
     return run(...lastArgsRef.current);
   }, [run]);
 
   return { run, retry, loading, error, setError };
 }
-

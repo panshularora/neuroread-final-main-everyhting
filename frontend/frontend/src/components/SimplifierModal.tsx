@@ -1,13 +1,73 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { rewriteText, generateVocabCard, askTutor, fetchTTSAudio, submitSessionLog } from '../services/api';
+import type { TutorMode } from '../services/api';
 import { useAsync } from '../hooks/useAsync';
 import InteractiveReader from './reading/InteractiveReader';
 import CompanionAvatar from './reading/CompanionAvatar';
 import { X } from 'lucide-react';
 import ApiNotice from './ApiNotice';
+import type { RewriteItem, RewriteMode, SimplifyResponse, VocabCard } from '../types/api';
 
-export default function SimplifierModal({
-  open,
+export type Difficulty = 'High' | 'Moderate' | 'Low';
+
+/** The simplify response reshaped for display. */
+export interface SimplifierMetrics {
+  simplifiedText: string;
+  originalScore: number;
+  readingTime: string;
+  difficulty: Difficulty;
+  reduction: number;
+  intensity: number;
+  impactSummary: string;
+  keywords: string[];
+  raw: SimplifyResponse;
+}
+
+interface SimplifierModalProps {
+  open: boolean;
+  onClose: () => void;
+  userId: string;
+  onUserIdChange: (userId: string) => void;
+  profile: string;
+  onProfileChange: (profile: string) => void;
+  inputText: string;
+  onInputTextChange: (text: string) => void;
+  dyslexiaOn: boolean;
+  onToggleDyslexia: () => void;
+  audioOn: boolean;
+  onToggleAudio: () => void;
+  simplifiedText: string;
+  loading: boolean;
+  metrics: SimplifierMetrics | null;
+  error: string;
+  onRunSimplifier: () => void;
+}
+
+type ShownVocabCard = Pick<VocabCard, 'word' | 'definition' | 'simple_definition' | 'example_sentence' | 'synonyms'>;
+
+interface TutorMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  suggested?: string[];
+}
+
+const BADGE_CLASSES: Record<string, string> = {
+  high: 'bg-err/10 text-err border-err/25',
+  moderate: 'bg-warn/10 text-warn border-warn/25',
+  low: 'bg-ok/10 text-ok border-ok/25',
+  pending: 'bg-ink/5 text-muted border-line',
+};
+
+// The dialog is only mounted while open, so each visit starts with a clean
+// slate (no old rewrites, tutor chat or vocabulary card) and counts as one
+// reading session.
+export default function SimplifierModal(props: SimplifierModalProps) {
+  if (!props.open) return null;
+  return <SimplifierDialog {...props} />;
+}
+
+function SimplifierDialog({
   onClose,
   userId,
   onUserIdChange,
@@ -24,52 +84,67 @@ export default function SimplifierModal({
   metrics,
   error,
   onRunSimplifier,
-}) {
-  const overlayRef = useRef(null);
+}: Omit<SimplifierModalProps, 'open'>) {
+  const overlayRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [micNote, setMicNote] = useState('');
   const raw = metrics?.raw || null;
 
-  const [rewriteMode, setRewriteMode] = useState('simpler');
-  const [rewrites, setRewrites] = useState([]);
-  const [vocabCard, setVocabCard] = useState(null);
+  const [rewriteMode, setRewriteMode] = useState<RewriteMode>('simpler');
+  const [rewrites, setRewrites] = useState<RewriteItem[]>([]);
+  const [vocabCard, setVocabCard] = useState<ShownVocabCard | null>(null);
   const [tutorQuestion, setTutorQuestion] = useState('');
-  const [tutorMode, setTutorMode] = useState('explain');
-  const [tutorMessages, setTutorMessages] = useState<any[]>([]);
-  const [ttsUrl, setTtsUrl] = useState('');
+  const [tutorMode, setTutorMode] = useState<TutorMode>('explain');
+  const [tutorMessages, setTutorMessages] = useState<TutorMessage[]>([]);
+  const [tts, setTts] = useState<{ text: string; url: string } | null>(null);
 
-  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
-  const [pausesCount, setPausesCount] = useState(0);
-  const [errorsCount, setErrorsCount] = useState(0);
+  // Reading-session numbers are only needed for the log sent on close, so they
+  // live in a ref rather than state.
+  const session = useRef({ start: null as number | null, pauses: 0, errors: 0, userId, difficultWords: 0 });
 
   const rewriteAsync = useAsync(rewriteText, { retries: 1 });
   const vocabAsync = useAsync(generateVocabCard, { retries: 1 });
   const tutorAsync = useAsync(askTutor, { retries: 0 });
-  const ttsAsync = useAsync(fetchTTSAudio, { retries: 0 });
+  const { run: runTts, loading: ttsLoading } = useAsync(fetchTTSAudio, { retries: 0 });
+
+  const dyslexiaStyle = useMemo(() => {
+    if (!dyslexiaOn) return undefined;
+    return { letterSpacing: '.06em', lineHeight: '2.2', wordSpacing: '.18em' };
+  }, [dyslexiaOn]);
+
+  const difficultWordsSet = useMemo(() => {
+    const list = raw?.simplified_analysis?.difficult_words || raw?.original_analysis?.difficult_words || [];
+    const set = new Set<string>();
+    for (const item of list) {
+      const w = item?.word;
+      if (w) set.add(String(w).toLowerCase());
+    }
+    return set;
+  }, [raw]);
+
+  // The session starts once there is simplified text to read.
+  useEffect(() => {
+    const s = session.current;
+    s.userId = userId;
+    s.difficultWords = difficultWordsSet.size;
+    if (simplifiedText && s.start === null) s.start = Date.now();
+  }, [simplifiedText, userId, difficultWordsSet]);
+
+  // Closing the dialog ends the session and logs it.
+  useEffect(() => {
+    const s = session.current;
+    return () => {
+      if (s.start === null) return;
+      const readingTimeMinutes = (Date.now() - s.start) / 1000 / 60;
+      // Progress logging is best effort; the reader shouldn't see an error for it.
+      submitSessionLog(s.userId, readingTimeMinutes, s.pauses, s.errors, s.difficultWords).catch(() => {});
+      Object.assign(s, { start: null, pauses: 0, errors: 0 });
+    };
+  }, []);
 
   useEffect(() => {
-    if (open && simplifiedText) {
-      if (!sessionStartTime) {
-         setSessionStartTime(Date.now());
-      }
-    }
-    if (!open && sessionStartTime) {
-       const timeSeconds = (Date.now() - sessionStartTime) / 1000;
-       const readingTimeMinutes = timeSeconds / 60;
-       const diffWords = difficultWordsSet?.size || 0;
-       // Progress logging is best effort; the reader shouldn't see an error for it.
-       submitSessionLog(userId, readingTimeMinutes, pausesCount, errorsCount, diffWords).catch(() => {});
-
-       setSessionStartTime(null);
-       setPausesCount(0);
-       setErrorsCount(0);
-    }
-  }, [open, simplifiedText, sessionStartTime, userId, pausesCount, errorsCount]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (vocabCard) setVocabCard(null);
         else onClose();
@@ -93,112 +168,48 @@ export default function SimplifierModal({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose, onRunSimplifier, vocabCard]);
+  }, [onClose, onRunSimplifier, vocabCard]);
 
   // Move focus into the dialog when it opens and give it back when it closes.
   useEffect(() => {
-    if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     textareaRef.current?.focus();
     return () => previous?.focus?.();
-  }, [open]);
+  }, []);
 
   useEffect(() => {
-    if (open) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
+    document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = '';
     };
-  }, [open]);
+  }, []);
 
   useEffect(() => {
-    if (!open) return;
     window.Iconify?.scan?.();
-  }, [open, simplifiedText, metrics]);
+  }, [simplifiedText, metrics]);
+
+  const ttsText = (simplifiedText || '').trim();
+  const ttsUrl = audioOn && tts?.text === ttsText ? tts.url : '';
 
   useEffect(() => {
-    if (!open) return;
-    setRewrites([]);
-    setVocabCard(null);
-    setTutorMessages([]);
-    setTutorQuestion('');
-    setTtsUrl('');
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    if (!audioOn) {
-      setTtsUrl('');
-      return;
-    }
-    const txt = (simplifiedText || '').trim();
-    if (!txt) return;
+    if (!audioOn || !ttsText) return;
 
     let cancelled = false;
     (async () => {
       try {
-        const blob = await ttsAsync.run(txt);
-        if (cancelled) return;
-        const url = URL.createObjectURL(blob);
-        setTtsUrl(url);
+        const blob = await runTts(ttsText);
+        if (!cancelled) setTts({ text: ttsText, url: URL.createObjectURL(blob) });
       } catch {
-        if (!cancelled) setTtsUrl('');
+        if (!cancelled) setTts({ text: ttsText, url: '' });
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [open, audioOn, simplifiedText]);
+  }, [audioOn, ttsText, runTts]);
 
-  const dyslexiaStyle = useMemo(() => {
-    if (!dyslexiaOn) return undefined;
-    return { letterSpacing: '.06em', lineHeight: '2.2', wordSpacing: '.18em' };
-  }, [dyslexiaOn]);
-
-  const difficultWordsSet = useMemo(() => {
-    const list = raw?.simplified_analysis?.difficult_words || raw?.original_analysis?.difficult_words || [];
-    const set = new Set();
-    for (const item of list) {
-      const w = item?.word;
-      if (w) set.add(String(w).toLowerCase());
-    }
-    return set;
-  }, [raw]);
-
-  const renderedSimplified = useMemo(() => {
-    const txt = simplifiedText || '';
-    if (!txt) return null;
-    if (!difficultWordsSet.size) return txt;
-
-    const parts = txt.split(/(\b[\w']+\b)/g);
-    return parts.map((p, idx) => {
-      const key = p && /\b[\w']+\b/.test(p) ? p.toLowerCase() : null;
-      if (key && difficultWordsSet.has(key)) {
-        return (
-          <button
-            key={`${idx}-${p}`}
-            type="button"
-            onClick={async () => {
-              try {
-                const card = await vocabAsync.run(p);
-                setVocabCard(card);
-              } catch {
-                setVocabCard({ word: p, definition: 'Unable to fetch card.', simple_definition: '', example_sentence: '', synonyms: [] });
-              }
-            }}
-            className="px-1 rounded-md bg-clay/10 hover:bg-clay/20 border border-clay/20 text-charcoal/80 transition-colors"
-            title="Click for vocabulary card"
-          >
-            {p}
-          </button>
-        );
-      }
-      return <span key={`${idx}-t`}>{p}</span>;
-    });
-  }, [simplifiedText, difficultWordsSet, vocabAsync]);
-
-  const explainSentence = async (sentence) => {
+  const explainSentence = async (sentence: string) => {
     const q = `Explain this sentence in simple terms:\n\n${sentence}`;
     setTutorMessages((prev) => [
       ...prev,
@@ -225,17 +236,9 @@ export default function SimplifierModal({
 
   const scoreBadgeClass = (() => {
     const diff = (metrics?.difficulty || 'PENDING').toLowerCase();
-    const bc = {
-      high: 'bg-err/10 text-err border-err/25',
-      moderate: 'bg-warn/10 text-warn border-warn/25',
-      low: 'bg-ok/10 text-ok border-ok/25',
-      pending: 'bg-ink/5 text-muted border-line',
-    };
     const base = 'text-sm font-bold px-3 py-1 rounded-full border';
-    return `${base} ${bc[diff] || bc.moderate}`;
+    return `${base} ${BADGE_CLASSES[diff] || BADGE_CLASSES.moderate}`;
   })();
-
-  if (!open) return null;
 
   return (
     <div
@@ -418,7 +421,7 @@ export default function SimplifierModal({
                 <select
                   id="simplifier-rewrite"
                   value={rewriteMode}
-                  onChange={(e) => setRewriteMode(e.target.value)}
+                  onChange={(e) => setRewriteMode(e.target.value as RewriteMode)}
                   className="rounded-xl border border-moss/15 bg-white px-3 py-2 text-xs text-charcoal focus:outline-none focus:ring-2 focus:ring-moss/20"
                 >
                   <option value="simpler">Simpler</option>
@@ -472,11 +475,12 @@ export default function SimplifierModal({
                 ) : simplifiedText ? (
                   <div className="rounded-xl bg-paper border border-line px-5 py-4">
                     <InteractiveReader
+                      key={simplifiedText}
                       text={simplifiedText}
                       dyslexiaStyle={dyslexiaStyle}
                       difficultWordsSet={difficultWordsSet}
-                      onWordClick={async (word: any) => {
-                        setErrorsCount(e => e + 1);
+                      onWordClick={async (word: string) => {
+                        session.current.errors += 1;
                         try {
                           const card = await vocabAsync.run(word);
                           setVocabCard(card);
@@ -528,7 +532,7 @@ export default function SimplifierModal({
             {audioOn ? (
               <div className="rounded-2xl bg-white border border-moss/10 p-5 mb-4">
                 <p className="text-xs font-medium text-charcoal/40 mb-3">Audio (TTS)</p>
-                {ttsAsync.loading ? (
+                {ttsLoading ? (
                   <p className="text-xs text-charcoal/50">Generating audio…</p>
                 ) : ttsUrl ? (
                   <audio controls src={ttsUrl} className="w-full" />
@@ -646,7 +650,7 @@ export default function SimplifierModal({
                 <select
                   aria-label="Tutor mode"
                   value={tutorMode}
-                  onChange={(e) => setTutorMode(e.target.value)}
+                  onChange={(e) => setTutorMode(e.target.value as TutorMode)}
                   className="rounded-xl border border-moss/15 bg-white px-3 py-2 text-xs text-charcoal focus:outline-none focus:ring-2 focus:ring-moss/20"
                 >
                   <option value="explain">Explain</option>
@@ -668,7 +672,7 @@ export default function SimplifierModal({
                 onClick={async () => {
                   const q = tutorQuestion.trim();
                   if (!q) return;
-                  setPausesCount(p => p + 1);
+                  session.current.pauses += 1;
                   setTutorQuestion('');
                   setTutorMessages((prev) => [
                     ...prev,

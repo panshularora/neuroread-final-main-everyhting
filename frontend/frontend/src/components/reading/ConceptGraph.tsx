@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
+import type { ForceGraphMethods, LinkObject, NodeObject } from 'react-force-graph-2d';
+import type { ConceptGraphResponse } from '../../types/api';
 
-export default function ConceptGraph({ graph, height = 260 }) {
-  const fgRef = useRef(null);
-  const [selected, setSelected] = useState(null);
+type GraphNode = { id: string; type: string };
+type GraphLink = { relation: string };
+type GraphMethods = ForceGraphMethods<NodeObject<GraphNode>, LinkObject<GraphNode, GraphLink>>;
+
+export default function ConceptGraph({ graph, height = 260 }: { graph: ConceptGraphResponse | null; height?: number }) {
+  const fgRef = useRef<GraphMethods | undefined>(undefined);
+  const [selected, setSelected] = useState<NodeObject<GraphNode> | null>(null);
 
   const data = useMemo(() => {
     const nodes = (graph?.nodes || []).map((n) => ({ id: n.id, type: n.type || 'concept' }));
@@ -35,7 +41,7 @@ export default function ConceptGraph({ graph, height = 260 }) {
   return (
     <div>
       <div className="rounded-2xl border border-moss/10 overflow-hidden bg-white">
-        <ForceGraph2D
+        <ForceGraph2D<GraphNode, GraphLink>
           ref={fgRef}
           graphData={data}
           height={height}
@@ -44,6 +50,7 @@ export default function ConceptGraph({ graph, height = 260 }) {
           linkLabel={(l) => l.relation}
           nodeRelSize={5}
           nodeCanvasObject={(node, ctx, globalScale) => {
+            if (node.x === undefined || node.y === undefined) return;
             const label = node.id;
             const fontSize = 12 / globalScale;
             ctx.font = `${fontSize}px sans-serif`;

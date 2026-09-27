@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import jsPDF from 'jspdf';
 import { ChevronDown, Download } from 'lucide-react';
 import { getDashboard } from '../services/api';
+import type { DashboardResponse } from '../types/api';
 
-function Bar({ heightPct, label, high, title }) {
+function Bar({ heightPct, label, high, title }: { heightPct: number; label: string; high: boolean; title: string }) {
   return (
     <li className="flex h-full flex-1 flex-col items-center justify-end gap-1" title={title}>
       <span
@@ -16,9 +17,9 @@ function Bar({ heightPct, label, high, title }) {
   );
 }
 
-export default function History({ userId }) {
-  const [data, setData] = useState<any>(null);
-  const [expandedId, setExpandedId] = useState<any>(null);
+export default function History({ userId }: { userId: string }) {
+  const [data, setData] = useState<DashboardResponse | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -37,7 +38,7 @@ export default function History({ userId }) {
   const sessions = data?.session_history || [];
   
   const handleExport = () => {
-    const doc = new (jsPDF as any)();
+    const doc = new jsPDF();
 
     // Header
     doc.setFillColor(46, 64, 54);
@@ -53,7 +54,7 @@ export default function History({ userId }) {
     doc.text(`User ID: ${userId || 'demo-user-001'}`, 14, 35);
 
     let y = 50;
-    sessions.forEach((s: any, i: number) => {
+    sessions.forEach((s, i) => {
       if (i % 2 === 0) {
         doc.setFillColor(242, 240, 233);
         doc.rect(10, y - 5, 190, 22, 'F');
@@ -125,7 +126,7 @@ export default function History({ userId }) {
             <div className="mb-6 rounded-3xl border border-line bg-surface p-5">
               <h3 className="mb-4 text-base text-ink">Reading load per session</h3>
               <ol className="flex h-28 items-end gap-2" aria-label="Reading load of the last sessions">
-                {sessions.slice(-15).map((s: any, idx: number) => {
+                {sessions.slice(-15).map((s, idx) => {
                   const d = new Date(s.timestamp);
                   return (
                     <Bar
@@ -141,7 +142,7 @@ export default function History({ userId }) {
             </div>
 
             <ul className="space-y-2" id="history-list">
-              {sessions.slice().reverse().map((s: any) => {
+              {sessions.slice().reverse().map((s) => {
                 const isOpen = expandedId === s.session_id;
                 const high = s.cognitive_load > 60;
                 return (

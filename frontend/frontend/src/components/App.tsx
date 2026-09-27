@@ -3,12 +3,6 @@ import { MotionConfig } from 'framer-motion';
 import { simplifyText, ensureUserId, setUserId, friendlyError } from '../services/api';
 import { useHashRoute } from '../lib/useHashRoute';
 import type { Route } from '../lib/useHashRoute';
-
-declare global {
-  interface Window {
-    Iconify: any;
-  }
-}
 import AssistiveMode from './AssistiveMode';
 import ApiNotice from './ApiNotice';
 import Hero from './Hero';
@@ -18,6 +12,7 @@ import LearningMode from './LearningMode';
 import PracticeMode from './PracticeMode';
 import Navbar from './Navbar';
 import SimplifierModal from './SimplifierModal';
+import type { Difficulty, SimplifierMetrics } from './SimplifierModal';
 import Dashboard from '../pages/Dashboard';
 import AccessibilityMenu from './AccessibilityMenu';
 import Onboarding from './Onboarding';
@@ -33,10 +28,9 @@ const TITLES: Record<Route, string> = {
   progress: 'Progress · NeuroRead',
 };
 
-function nextDifficulty(current: string) {
-  const v = (current || '').toLowerCase();
-  if (v === 'high') return 'Moderate';
-  if (v === 'moderate') return 'Low';
+function difficultyFor(load: number): Difficulty {
+  if (load >= 70) return 'High';
+  if (load >= 40) return 'Moderate';
   return 'Low';
 }
 
@@ -59,15 +53,8 @@ export default function App() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [metrics, setMetrics] = useState<any>(null);
+  const [metrics, setMetrics] = useState<SimplifierMetrics | null>(null);
   const [simplifiedText, setSimplifiedText] = useState('');
-
-  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
-  const [historySessions, setHistorySessions] = useState<any[]>([]);
-
-  useEffect(() => {
-    setHistorySessions([]);
-  }, []);
 
   useEffect(() => {
     setUserId(userId);
@@ -91,7 +78,7 @@ export default function App() {
 
   useEffect(() => {
     window.Iconify?.scan?.();
-  }, [route, historySessions.length]);
+  }, [route]);
 
   const closeSimplifier = useCallback(() => {
     navigate('home');
@@ -117,11 +104,12 @@ export default function App() {
     try {
       const data = await simplifyText(text, profile, userId);
       if (data?.status === 'error') throw new Error(data.message || 'simplify failed');
-      const adapted = {
+      const originalLoad = data.original_analysis?.cognitive_load_score ?? 0;
+      const adapted: SimplifierMetrics = {
         simplifiedText: data.simplified_text ?? '',
-        originalScore: Math.round(data.original_analysis?.cognitive_load_score ?? 0),
+        originalScore: Math.round(originalLoad),
         readingTime: `${Math.max(1, Math.round(data.original_analysis?.estimated_reading_time_minutes ?? 0))} min`,
-        difficulty: (data.original_analysis?.cognitive_load_score >= 70 ? 'High' : data.original_analysis?.cognitive_load_score >= 40 ? 'Moderate' : 'Low'),
+        difficulty: difficultyFor(originalLoad),
         reduction: data.cognitive_load_reduction ?? 0,
         intensity: Math.round(data.simplified_analysis?.cognitive_load_score ?? 0),
         impactSummary: data.impact_summary ?? '',
@@ -130,26 +118,8 @@ export default function App() {
       };
 
       setSimplifiedText(adapted.simplifiedText || '');
-      setMetrics(adapted as any);
-
-      setHistorySessions((prev) => {
-        const live = {
-          id: `live-${Date.now()}`,
-          title: `Focus Session ${prev.length + 1}`,
-          date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          originalScore: adapted.originalScore,
-          simplifiedScore: adapted.intensity,
-          reduction: adapted.reduction,
-          difficultyFrom: adapted.difficulty,
-          difficultyTo: nextDifficulty(adapted.difficulty),
-          summary: adapted.impactSummary,
-          keywords: adapted.keywords,
-          accent: 'clay',
-          isNew: true,
-        };
-        return [live, ...prev];
-      });
-    } catch (e: any) {
+      setMetrics(adapted);
+    } catch (e) {
       setError(friendlyError(e, "That text couldn't be simplified. Try a shorter passage or try again in a moment."));
     } finally {
       setLoading(false);
@@ -204,11 +174,9 @@ export default function App() {
               <Hero />
               <section id="assistive-mode-section" className="py-16">
                 <AssistiveMode
-                  active={true}
                   onOpenSimplifier={() => navigate('read')}
                   onRunSimplifier={runSimplifier}
                   onSetInputText={setInputText}
-                  onNavigate={navigate}
                 />
               </section>
               <HowItWorks />

@@ -1,6 +1,6 @@
 import React from 'react'
 
-export const PHONEME_COLORS: Record<string, string> = {
+const PHONEME_COLORS: Record<string, string> = {
   b: '#1565C0',   // deep blue — distinct from black text
   d: '#E65100',   // deep orange
   p: '#6A1B9A',   // deep purple
@@ -15,12 +15,9 @@ export const PHONEME_COLORS: Record<string, string> = {
  * Research basis: implicit color-letter association reduces b/d confusion
  * faster than phonics drilling alone (Singleton & Trotter, 2005).
  */
-export function colorizeWord(
-  word: string,
-  baseStyle?: React.CSSProperties
-): React.ReactElement {
+function ColorizedWord({ word, style }: { word: string; style?: React.CSSProperties }) {
   return (
-    <span style={baseStyle}>
+    <span style={style}>
       {word.split('').map((char, i) => {
         const lower = char.toLowerCase()
         const color = PHONEME_COLORS[lower]
@@ -37,19 +34,20 @@ export function colorizeWord(
   )
 }
 
-/**
- * Colorizes an entire text string, word by word.
- * Returns an array of React elements (one per word + space).
- */
-export function colorizeText(text: string): React.ReactElement[] {
+/** Colorizes an entire text string, word by word. */
+export function ColorizedText({ text }: { text: string }) {
   const words = text.split(' ')
-  return words.flatMap((word, wi) => {
-    const elements: React.ReactElement[] = [
-      <span key={`w-${wi}`}>{colorizeWord(word)}</span>
-    ]
-    if (wi < words.length - 1) {
-      elements.push(<span key={`s-${wi}`}> </span>)
-    }
-    return elements
-  })
+  return (
+    <>
+      {words.flatMap((word, wi) => {
+        const elements: React.ReactElement[] = [
+          <span key={`w-${wi}`}><ColorizedWord word={word} /></span>
+        ]
+        if (wi < words.length - 1) {
+          elements.push(<span key={`s-${wi}`}> </span>)
+        }
+        return elements
+      })}
+    </>
+  )
 }

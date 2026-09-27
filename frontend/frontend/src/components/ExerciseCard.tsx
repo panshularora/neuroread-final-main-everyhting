@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Check, Lightbulb, Volume2 } from 'lucide-react';
 import { useAccessibilityStore } from '../stores/accessibilityStore';
+import type { Exercise } from '../types/api';
 
 // Letters that are easy to mirror get a fixed colour when letter colouring is on.
 const PHONEME_COLORS: Record<string, string> = {
@@ -23,16 +24,7 @@ function colorizeWord(word: string, coloredLetters: boolean): React.ReactNode {
 }
 
 interface ExerciseCardProps {
-  exercise: {
-    id: string;
-    type: 'phonics' | 'spelling' | 'comprehension' | 'matching';
-    prompt: string;
-    options: string[];
-    correct_answer: string;
-    difficulty: number;
-    target_skill: string;
-    hint: string;
-  };
+  exercise: Exercise;
   onAnswer: (answer: string) => void;
   disabled: boolean;
   feedback?: 'correct' | 'incorrect' | null;

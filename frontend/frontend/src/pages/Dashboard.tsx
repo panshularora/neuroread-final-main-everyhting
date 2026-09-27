@@ -6,26 +6,7 @@ import { AlertTriangle, BookOpenText, Download, Info, Puzzle, RotateCw, Star, Ta
 
 import { getDashboard, ensureUserId, setUserId as storeUserId, friendlyError } from '../services/api';
 import { useAsync } from '../hooks/useAsync';
-
-type Session = {
-  session_id: number;
-  cognitive_load: number;
-  reading_time: number;
-  difficult_words_count?: number;
-  pauses?: number;
-  errors?: number;
-  timestamp: string;
-};
-
-type Insight = { type: string; title: string; desc: string };
-
-type DashboardData = {
-  avg_cognitive_load?: number;
-  improvement_trend?: number[];
-  session_history?: Session[];
-  difficulty_distribution?: { low: number; moderate: number; high: number };
-  insights?: Insight[];
-};
+import type { DashboardResponse as DashboardData, DashboardSession as Session } from '../types/api';
 
 const INSIGHT_STYLE: Record<string, { Icon: typeof Info; tone: string }> = {
   struggle: { Icon: AlertTriangle, tone: 'border-err/30 bg-err/5 text-err' },
@@ -90,19 +71,30 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (mode: string) 
   const [draftId, setDraftId] = useState(userId);
   const [data, setData] = useState<DashboardData | null>(null);
   const dashboardAsync = useAsync(getDashboard, { retries: 1 });
+  const runDashboard = dashboardAsync.run;
 
   const load = async (id: string) => {
     try {
-      setData(await dashboardAsync.run(id));
+      setData(await runDashboard(id));
     } catch {
       setData(null);
     }
   };
 
   useEffect(() => {
-    load(userId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await runDashboard(userId);
+        if (!cancelled) setData(res);
+      } catch {
+        if (!cancelled) setData(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [runDashboard, userId]);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -122,7 +114,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (mode: string) 
   const dist = data?.difficulty_distribution;
 
   const loading = dashboardAsync.loading && !data;
-  const failed = !dashboardAsync.loading && dashboardAsync.error;
+  const failed = !dashboardAsync.loading && Boolean(dashboardAsync.error);
 
   return (
     <div id="dashboard" className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
